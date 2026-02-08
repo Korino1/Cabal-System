@@ -2,3 +2,8 @@
 arch/zen4/57647_zen4_sog.txt
 arch/**/*.pdf
 arch/**/*.zip
+
+# Agner Fog reference set (explicitly tracked in this repo)
+!arch/main/
+!arch/main/*.pdf
+!arch/main/*.zip
