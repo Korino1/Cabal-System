@@ -46,6 +46,7 @@
 ## Вклад
 Идеи, исправления и улучшения приветствуются. Открывайте issue или pull request с чётким описанием цели.
 
+![Cabal System схема](https://raw.githubusercontent.com/Korino1/Cabal-System/refs/heads/main/.memory/NODjpg.jpg)
 ---
 
 # Cabal System — Logical Protocol for Large Projects (Protocol 3.1)
