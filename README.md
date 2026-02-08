@@ -1,4 +1,4 @@
-# Cabal System2_2 — Логическая схема больших проектов (Протокол 3.1)
+# Cabal System — Логическая схема больших проектов
 
 ## Назначение
 Этот репозиторий содержит логическую схему (Protocol 3.1) для создания больших проектов и координации AI/агент‑workflow. Подход документационный: от концепта к логике, методам, функциям и интеграции. Код создаётся только после завершения описания функций.
@@ -41,7 +41,7 @@
 
 ---
 
-# Cabal System2_2 — Logical Protocol for Large Projects (Protocol 3.1)
+# Cabal System — Logical Protocol for Large Projects (Protocol 3.1)
 
 ## Purpose
 This repository contains a logical protocol (3.1) for building large projects and coordinating AI/agent workflows. The approach is documentation‑first: concept → logic → methods → functions → integration. Code is written only after function descriptions are completed.
