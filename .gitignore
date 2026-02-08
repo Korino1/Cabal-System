@@ -7,3 +7,6 @@ arch/**/*.zip
 !arch/main/
 !arch/main/*.pdf
 !arch/main/*.zip
+
+# Local bundles / archives
+*.7z
