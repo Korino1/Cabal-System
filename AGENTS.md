@@ -12,7 +12,7 @@
 Системный автоцикл (обязателен):
 1) Если нет явного концепта/пояснений — запроси их до любого действия.
 2) Прочитай `.memory/LOGIC_PROTOCOL.md` и определи текущий этап протокола 3.1.
-3) Определи следующего Агент (conceptualizer/global-architect/orchestrator/architect/integrator-runtime/mathematician/qa-agent).
+3) Определи следующего Агент (conceptualizer/global-architect/orchestrator/architect/integrator-runtime/mathematician/simd-specialist/qa-agent).
 4) Запусти/назначь Агент строго по протоколу 3.1.
 5) После завершения обнови `.memory/LOGIC_PROTOCOL.md` и `.memory/STATE.md`.
 6) Если протокол 3.1 не завершён — вернись к шагу 2.

@@ -9,6 +9,8 @@ artifacts:
   project_bootstrap: spec/docs/PROJECT_BOOTSTRAP.md
   concept_master: spec/docs/CONCEPT_MASTER.md
   concept_math_proof: spec/docs/CONCEPT_MATH_PROOF.md
+  zen4_readme: arch/zen4/README.md
+  zen4_registers: arch/zen4/zen4_registers.md
   phase_schema: spec/docs/PHASE_SCHEMA.md
   phase_gate: spec/docs/PHASE_GATE.md
   validator: scripts/validate_defect_ids.ps1

@@ -24,6 +24,18 @@ $repoRoot = (Resolve-Path -LiteralPath (Join-Path $scriptDir "..")).Path
 $validatorDefect = Join-Path $scriptDir "validate_defect_ids.ps1"
 $validatorOwner = Join-Path $scriptDir "validate_owner.ps1"
 
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+function Write-Utf8NoBomLines([string]$path, $lines) {
+  $text = ($lines | ForEach-Object { $_.ToString() }) -join "`n"
+  if ($text -notmatch "`n$") { $text += "`n" }
+  [System.IO.File]::WriteAllText($path, $text, $utf8NoBom)
+}
+function Append-Utf8NoBomLines([string]$path, $lines) {
+  $text = ($lines | ForEach-Object { $_.ToString() }) -join "`n"
+  if ($text -notmatch "`n$") { $text += "`n" }
+  [System.IO.File]::AppendAllText($path, $text, $utf8NoBom)
+}
+
 function Resolve-RepoPath([string]$path) {
   if ([string]::IsNullOrWhiteSpace($path)) { return $path }
   if ([System.IO.Path]::IsPathRooted($path)) { return $path }
@@ -138,7 +150,7 @@ $stateLines += ''
 $stateLines += '## Notes'
 $stateLines += '- '
 
-Set-Content -Encoding UTF8 -Path $StatePath -Value $stateLines
+Write-Utf8NoBomLines $StatePath $stateLines
 
 if (!(Test-Path -LiteralPath $StateHistoryPath)) {
   $historyHeader = @(
@@ -155,7 +167,7 @@ if (!(Test-Path -LiteralPath $StateHistoryPath)) {
     '# State History (append-only)',
     ''
   )
-  $historyHeader | Set-Content -Encoding UTF8 -Path $StateHistoryPath
+  Write-Utf8NoBomLines $StateHistoryPath $historyHeader
 }
 
 $historyLines = New-Object System.Collections.Generic.List[string]
@@ -177,7 +189,7 @@ $historyLines.Add("- Files: $($filesList -join ' | ')")
 $historyLines.Add("- Tests: $($testsList -join ' | ')")
 $historyLines.Add("- Commands: $($commandsList -join ' | ')")
 $historyLines.Add("- Notes: $Summary")
-Add-Content -Encoding UTF8 -Path $StateHistoryPath -Value $historyLines
+Append-Utf8NoBomLines $StateHistoryPath $historyLines
 
 if (!(Test-Path -LiteralPath $WorklogPath)) {
   $worklogHeader = @('---','id: worklog',"updated: $nowDate")
@@ -185,20 +197,20 @@ if (!(Test-Path -LiteralPath $WorklogPath)) {
     $worklogHeader += "phase: $PhaseId"
   }
   $worklogHeader += '---'
-  $worklogHeader | Set-Content -Encoding UTF8 -Path $WorklogPath
+  Write-Utf8NoBomLines $WorklogPath $worklogHeader
 }
 
 if ([string]::IsNullOrWhiteSpace($Summary)) {
   $Summary = "Checkpoint snapshot recorded ($snapId)"
 }
 
-Add-Content -Encoding UTF8 -Path $WorklogPath -Value ("- $nowTime [$PhaseLabel]: $Summary")
+Append-Utf8NoBomLines $WorklogPath @("- $nowTime [$PhaseLabel]: $Summary")
 
 if ($Checkpoint.IsPresent) {
   if (!(Test-Path -LiteralPath $ProgressPath)) {
-    @('---','id: progress',"updated: $nowDate",'---','# Progress (changelog — одна строка на событие)') | Set-Content -Encoding UTF8 -Path $ProgressPath
+    Write-Utf8NoBomLines $ProgressPath @('---','id: progress',"updated: $nowDate",'---','# Progress (changelog — одна строка на событие)')
   }
-  Add-Content -Encoding UTF8 -Path $ProgressPath -Value ("${nowDate}: $Summary")
+  Append-Utf8NoBomLines $ProgressPath @("${nowDate}: $Summary")
 }
 
 Write-Host "OK: $snapId ($PhaseLabel)"

@@ -11,6 +11,17 @@ if ([string]::IsNullOrWhiteSpace($PhaseId)) {
   exit 2
 }
 
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+function Write-Utf8NoBomLines([string]$path, $lines) {
+  $text = ($lines | ForEach-Object { $_.ToString() }) -join "`n"
+  if ($text -notmatch "`n$") { $text += "`n" }
+  [System.IO.File]::WriteAllText($path, $text, $utf8NoBom)
+}
+function Append-Utf8NoBomText([string]$path, [string]$text) {
+  if ($text -notmatch "`n$") { $text += "`n" }
+  [System.IO.File]::AppendAllText($path, $text, $utf8NoBom)
+}
+
 $phaseDir = Join-Path (Join-Path $repoRoot ".memory\\PHASES") $PhaseId
 $indexPath = Join-Path $phaseDir "WORKLOG.md"
 
@@ -20,7 +31,7 @@ if (!(Test-Path -LiteralPath $phaseDir)) {
 }
 
 if (!(Test-Path -LiteralPath $indexPath)) {
-  @('---','id: worklog',"updated: $(Get-Date -Format 'yyyy-MM-dd')","phase: $PhaseId",'---') | Set-Content -Encoding UTF8 -Path $indexPath
+  Write-Utf8NoBomLines $indexPath @('---','id: worklog',"updated: $(Get-Date -Format 'yyyy-MM-dd')","phase: $PhaseId",'---')
 }
 
 $stamp = Get-Date -Format "yyyyMMdd-HHmm"
@@ -41,10 +52,10 @@ $header = @(
   "## Details",
   "- "
 )
-$header | Set-Content -Encoding UTF8 -Path $worklogPath
+Write-Utf8NoBomLines $worklogPath $header
 
 $indexLine = "- $(Get-Date -Format 'yyyy-MM-dd HH:mm'): $fileName — $Title"
-Add-Content -Encoding UTF8 -Path $indexPath -Value $indexLine
+Append-Utf8NoBomText $indexPath $indexLine
 
 # Optional rotation check
 $lines = (Get-Content -Encoding UTF8 -Path $worklogPath).Length
