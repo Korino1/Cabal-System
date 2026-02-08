@@ -1,3 +1,4 @@
 # Vendor docs / local extracts (do not commit copyrighted materials)
 arch/zen4/57647_zen4_sog.txt
 arch/**/*.pdf
+arch/**/*.zip
