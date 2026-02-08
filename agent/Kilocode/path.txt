@@ -1,0 +1,1 @@
+%APPDATA%\Code\User\globalStorage\kilocode.kilo-code\settings  Вставьте сюда yaml если хотите применить режимы глобально. Либо согласно документации kilocode используйте внутри проекта индивидуально.

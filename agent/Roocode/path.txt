@@ -1,0 +1,1 @@
+%APPDATA%\Code\User\globalStorage\rooveterinaryinc.roo-cline\settings   - Для глобального режима. Либо делайете свой в папке проекта,смотрите документацию roocode.
