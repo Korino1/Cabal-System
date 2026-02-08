@@ -1,0 +1,4 @@
+CTXSHARD-2 — исторический план (2026-01-25)
+
+Итог: требования внедрены в регламенте и скриптах.
+Канон: `.memory/TRACKING.md`, `.memory/LOGIC_PROTOCOL.md`, `.memory/GLOBAL_INDEX.md`.

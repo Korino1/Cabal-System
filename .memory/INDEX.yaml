@@ -1,0 +1,28 @@
+# Машиночитаемый индекс актуальности артефактов
+updated: 2026-02-08
+artifacts:
+  tracking: .memory/TRACKING.md
+  state: .memory/STATE.md
+  global_index: .memory/GLOBAL_INDEX.md
+  phases_root: .memory/PHASES
+  defects: .memory/DEFECTS.md
+  project_bootstrap: spec/docs/PROJECT_BOOTSTRAP.md
+  concept_master: spec/docs/CONCEPT_MASTER.md
+  concept_math_proof: spec/docs/CONCEPT_MATH_PROOF.md
+  phase_schema: spec/docs/PHASE_SCHEMA.md
+  phase_gate: spec/docs/PHASE_GATE.md
+  validator: scripts/validate_defect_ids.ps1
+  validator_owner: scripts/validate_owner.ps1
+  validator_phase_exit: scripts/validate_phase_exit.ps1
+  validator_worklog_size: scripts/validate_worklog_size.ps1
+  switch_phase: scripts/switch_phase.ps1
+  new_worklog_entry: scripts/new_worklog_entry.ps1
+  checkpoint: scripts/checkpoint.ps1
+
+
+
+
+
+
+
+
