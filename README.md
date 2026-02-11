@@ -43,6 +43,17 @@
 1. CLI IDE (opencode, factory droid, claudecode и т.п.): скопируйте файлы из `agent/` в нужные пути вашей IDE и настройте модели по документации IDE. Затем копируйте содержимое репозитория в рабочую область, кроме `agent/` (если IDE хранит агентов отдельно).
 2. VS Code плагины (RooCode/KiloCode): агенты обычно представлены в виде `modes`. Замените внутренние правила каждого mode содержимым соответствующего файла из `agent/` и задайте mode имя, идентичное имени агента.
 
+## Режимы CONSULT: USER_TRACKING и YOLO
+Перед первым запуском GA-1 после окончательного утверждения концепта Пользователь выбирает режим маршрутизации CONSULT:
+- `USER_TRACKING` — Пользователь сам отслеживает прогресс и отвечает на CONSULT напрямую.
+- `YOLO` — каждый CONSULT уходит Оркестратору.
+
+Как работает `YOLO`:
+1. Оркестратор запрашивает у Пользователя уточнение и расширение сквозных правил.
+2. Новые правила фиксируются как дополнение к уже действующим сквозным правилам.
+3. Только после этого режим `YOLO` считается активированным.
+4. Далее каждый CONSULT обрабатывается Оркестратором: он выбирает профильного исполнителя и ставит задачу строго по сквозным правилам.
+
 ## Трёхъязычный синтез и выборка решений (RU/EN/ZH)
 Это внутренний рабочий механизм агентов для математики и сложных логических узлов. Пользователь не обязан выполнять эти шаги вручную.
 
@@ -127,6 +138,17 @@ Internal workflow handled by agents:
 Integration:
 1. CLI IDEs (opencode, factory droid, claudecode, etc.): copy files from `agent/` into your IDE agent locations and configure models per the IDE docs. Then copy repository contents into your working area, excluding `agent/` if agents are stored separately.
 2. VS Code plugins (RooCode/KiloCode): agents are usually represented as `modes`. Replace each mode's internal rules with the matching file from `agent/`, and keep mode names identical to agent names.
+
+## CONSULT Modes: USER_TRACKING and YOLO
+Before the first GA-1 run (after the concept is finalized), the user selects a CONSULT routing mode:
+- `USER_TRACKING` — the user tracks progress and answers CONSULT items directly.
+- `YOLO` — every CONSULT is routed to the Orchestrator.
+
+How `YOLO` works:
+1. The Orchestrator asks the user to clarify and extend cross-cutting rules.
+2. These rules are recorded as additions to existing cross-cutting rules.
+3. Only then is `YOLO` considered active.
+4. After activation, each CONSULT is handled by the Orchestrator, who assigns a suitable subagent and enforces all cross-cutting rules.
 
 ## Three-Language Synthesis and Solution Selection (RU/EN/ZH)
 This is an internal agent workflow for mathematical and hard-logic decisions; end users do not execute these steps manually.

@@ -74,6 +74,7 @@ owner: techlead
 ## 4.3) Смена активной фазы
 1) Пройти чеклист `spec/docs/PHASE_GATE.md` (Exit/Entry).
 2) Убедиться, что Exit Criteria выполнены и Digest заполнен.
+2.1) Если переход в `GA-1`: зафиксировать режим CONSULT (`USER_TRACKING`/`YOLO`) в `spec/docs/CONCEPT_MASTER.md` (6.7); для `YOLO` сначала зафиксировать дополнительные сквозные правила и только потом активировать режим.
 3) Обновить статус текущей фазы на `done` в `.memory/GLOBAL_INDEX.md`.
 4) Выставить `Active Phase` на следующую фазу в `.memory/GLOBAL_INDEX.md`.
 5) Обновить `.memory/PHASES/<Next>/INDEX.md` (Status = in_progress).

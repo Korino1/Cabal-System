@@ -1,7 +1,7 @@
 ---
 id: phase_index
 phase: GA-1
-updated: 2026-02-08
+updated: 2026-02-11
 owner: orchestrator
 ---
 # Phase GA-1 — Схема концепта
@@ -22,6 +22,7 @@ owner: orchestrator
 - `spec/docs/CONCEPT_MASTER.md`.
 - `spec/docs/CONCEPT_MATH_PROOF.md`.
 - Итог фазы C-0: `PHASES/C-0/DIGEST.md`.
+- Режим маршрутизации CONSULT и его состояние активации из `spec/docs/CONCEPT_MASTER.md` (раздел 6.7).
 
 ## Outputs/Artifacts
 - Раздел GA-1 в `.memory/LOGIC_PROTOCOL.md`.
@@ -32,6 +33,8 @@ owner: orchestrator
 - Entry Criteria:
   - C-0 завершен; `spec/docs/CONCEPT_MASTER.md` и `spec/docs/CONCEPT_MATH_PROOF.md` заполнены.
   - Активная фаза = GA-1 в `.memory/GLOBAL_INDEX.md`.
+  - Режим CONSULT (`USER_TRACKING` или `YOLO`) выбран и зафиксирован в `spec/docs/CONCEPT_MASTER.md` (6.7).
+  - Если выбран `YOLO`, дополнительные сквозные правила зафиксированы, а факт активации отмечен в `PHASES/GA-1/WORKLOG.md`.
 - Exit Criteria:
   - В `.memory/LOGIC_PROTOCOL.md` заполнен раздел GA-1.
   - В `.memory/PHASES/GA-1/DIGEST.md` кратко зафиксирован итог.
@@ -54,4 +57,3 @@ owner: orchestrator
 - Worklog: .memory/PHASES/GA-1/WORKLOG.md
 - State History: .memory/PHASES/GA-1/STATE_HISTORY.md
 - Digest: .memory/PHASES/GA-1/DIGEST.md
-

@@ -11,6 +11,8 @@
 - Пройти чеклист: spec/docs/PHASE_GATE.md (Entry)
 - В PHASES/<Next>/INDEX.md: Entry Criteria заполнены
 - Убедиться, что зависимые артефакты <Current> доступны и актуальны
+- Если <Next> = GA-1: до старта зафиксировать режим CONSULT (`USER_TRACKING`/`YOLO`) в `spec/docs/CONCEPT_MASTER.md` (6.7)
+- Если <Next> = GA-1 и выбран YOLO: зафиксировать дополнительные сквозные правила и только после этого активировать YOLO
 
 3) Обновление GLOBAL_INDEX.md
 - В таблице фазы <Current> выставить Status = done

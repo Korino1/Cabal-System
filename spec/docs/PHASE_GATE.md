@@ -9,6 +9,8 @@ owner: techlead
 - Active Phase в `.memory/GLOBAL_INDEX.md` соответствует целевой фазе.
 - Entry Criteria заполнены в `PHASES/<Phase>/INDEX.md`.
 - Все входные артефакты доступны и актуальны.
+- Для GA-1: до первой постановки задач выбран и зафиксирован режим CONSULT (`USER_TRACKING` или `YOLO`) в `spec/docs/CONCEPT_MASTER.md` (раздел 6.7).
+- Для GA-1 в режиме `YOLO`: до активации режима зафиксированы дополнительные сквозные правила и запись об активации в `PHASES/GA-1/WORKLOG.md`.
 
 ## Exit (закрытие фазы)
 - Exit Criteria заполнены в `PHASES/<Phase>/INDEX.md`.
