@@ -1,6 +1,6 @@
 ---
 id: tracking
-updated: 2026-02-01
+updated: 2026-02-11
 owner: techlead
 ---
 # Система отслеживания прогресса и восстановления
@@ -47,6 +47,8 @@ owner: techlead
   1) Заполнен `.memory/PHASES/<Phase>/DIGEST.md`.
   2) В `.memory/PHASES/<Phase>/INDEX.md` заполнены Exit Criteria и Status = done.
   3) В `.memory/GLOBAL_INDEX.md` обновлён статус фазы.
+  4) Для C-0: подтверждена синхронизация канона (`spec/docs/CONCEPT_MATH_PROOF.md` + `spec/docs/CONCEPT_MASTER.md`), закрыты задачи C-0.1..C-0.6.
+  5) Для C-0: если после последней C-0.6 Пользователь менял вариант/параметры, C-0.2..C-0.6 выполнены повторно и закрыты для последнего цикла.
 
 
 
@@ -75,6 +77,7 @@ owner: techlead
 3) Обновить статус текущей фазы на `done` в `.memory/GLOBAL_INDEX.md`.
 4) Выставить `Active Phase` на следующую фазу в `.memory/GLOBAL_INDEX.md`.
 5) Обновить `.memory/PHASES/<Next>/INDEX.md` (Status = in_progress).
+6) Создать/обновить `.memory/PHASES/<Next>/DIGEST.md` (минимум: `- Status: in_progress` + краткий Scope/Open questions).
 
 ## 5) Восстановление после обрыва
 1) Прочитать `STATE.md` и выполнить шаги раздела «Next Steps».
@@ -163,4 +166,3 @@ YYYY-MM-DD: <BASE>.<PHASE> — краткий результат / checkpoint
 3) Fixer принимает дефект: меняет статус на `InFix`, связывает с задачами в `TASKS.md` (с DEFECT ID).
 4) После исправления Fixer выставляет `Fixed`, добавляет тесты/проверки и запись в `PROGRESS.md`.
 5) После проверки — статус `Verified`; дефект считается закрытым.
-

@@ -1,5 +1,5 @@
 # Машиночитаемый индекс актуальности артефактов
-updated: 2026-02-08
+updated: 2026-02-11
 artifacts:
   tracking: .memory/TRACKING.md
   state: .memory/STATE.md
@@ -20,7 +20,6 @@ artifacts:
   switch_phase: scripts/switch_phase.ps1
   new_worklog_entry: scripts/new_worklog_entry.ps1
   checkpoint: scripts/checkpoint.ps1
-
 
 
 

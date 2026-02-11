@@ -5,6 +5,7 @@
 - Заполнить PHASES/<Current>/DIGEST.md
 - В PHASES/<Current>/INDEX.md: Status = done, Exit Criteria заполнены
 - Выполнить: pwsh -NoLogo -File .\scripts\validate_phase_exit.ps1 -PhaseId "<Current>"
+- Для C-0: если после C-0.6 есть новый выбор/новые параметры от Пользователя, сначала повторно выполнить цикл C-0.2..C-0.6, затем закрывать фазу.
 
 2) Проверка входа следующей фазы
 - Пройти чеклист: spec/docs/PHASE_GATE.md (Entry)
@@ -18,6 +19,7 @@
 
 4) Активация следующей фазы
 - В PHASES/<Next>/INDEX.md: Status = in_progress
+- Создать/обновить PHASES/<Next>/DIGEST.md (минимум: `- Status: in_progress` + Scope/Open questions)
 - Записать шаг в PHASES/<Next>/WORKLOG.md
 - Запустить checkpoint с -PhaseId <Next>
 
