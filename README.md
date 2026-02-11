@@ -26,14 +26,43 @@
 Кодирование допускается только после GA-5.
 
 ## Как пользоваться
-1. Зафиксируйте/обновите математическое обоснование и инварианты в `spec/docs/CONCEPT_MATH_PROOF.md` и сквозные правила (разделы 6-7) в `spec/docs/CONCEPT_MASTER.md` (фаза C-0).
-2. Следуйте активной фазе из .memory/GLOBAL_INDEX.md.
-3. Записывайте результаты в .memory/LOGIC_PROTOCOL.md и PHASES/<Phase>/DIGEST.md.
-4. Применяйте единый формат фаз из spec/docs/PHASE_SCHEMA.md и чек‑лист из spec/docs/PHASE_GATE.md.
-5. Ведите учёт прогресса в .memory/* (WORKLOG, STATE и т.д.).
-6. Интеграция агентов в CLI IDE (opencode, factory droid, claudecode и т.п.): скопируйте файлы из `agent/` в нужные пути вашей IDE и настройте модели по их документации. Затем копируйте содержимое репозитория в рабочую область, КРОМЕ папки `agent/` (если ваша IDE хранит агентов отдельно).
-7. Интеграция для плагинов VS Code (RooCode/KiloCode): агенты обычно представлены в виде `modes`. Замените внутренние правила каждого mode на правила из соответствующего файла в `agent/` и задайте каждому mode имя, идентичное имени агента.
-8. При указании стартового промпта советую максимально детализировать и не жалеть токенов для описания. От этого зависят уточняющие вопросы и сквозные правила, которые протянутся на всех этапах на каждого агента.
+Коротко: пользователю не нужно вручную собирать карту логики, фазы, леммы и служебные журналы. Это делают агенты.
+
+Минимальный сценарий для пользователя:
+1. Описать цель и контекст задачи.
+2. Указать ограничения, запреты и приоритеты.
+3. Ответить на уточняющие вопросы агентов.
+4. Подтвердить выбранный вариант на ключевых развилках.
+
+Внутреннюю работу выполняют агенты:
+1. Ведут протокол 3.1 и полную карту фаз/декомпозиции.
+2. Делают математическое обоснование, `math-critique`, QA-анти-имитацию и синтез вариантов.
+3. Поддерживают рабочие артефакты и записи (`.memory/*`, `spec/docs/*`).
+
+Интеграция:
+1. CLI IDE (opencode, factory droid, claudecode и т.п.): скопируйте файлы из `agent/` в нужные пути вашей IDE и настройте модели по документации IDE. Затем копируйте содержимое репозитория в рабочую область, кроме `agent/` (если IDE хранит агентов отдельно).
+2. VS Code плагины (RooCode/KiloCode): агенты обычно представлены в виде `modes`. Замените внутренние правила каждого mode содержимым соответствующего файла из `agent/` и задайте mode имя, идентичное имени агента.
+
+## Трёхъязычный синтез и выборка решений (RU/EN/ZH)
+Это внутренний рабочий механизм агентов для математики и сложных логических узлов. Пользователь не обязан выполнять эти шаги вручную.
+
+Базовый процесс:
+1. Сформировать базовое решение и доказательства на русском (RU).
+2. Независимо повторить рассуждение на английском (EN).
+3. Независимо повторить рассуждение на китайском (ZH).
+4. Сравнить RU/EN/ZH версии и явно зафиксировать разночтения (термины, кванторы, ограничения, условия применимости, параметры).
+5. Выполнить отдельный `math-critique`: обозначить слабые/неучтённые места и риски.
+6. Подготовить минимум 2 варианта решения для Пользователя (обычно: более строгий и более практичный).
+7. Если Пользователь предлагает свой метод, этот метод обязательно проходит независимую математическую валидацию.
+8. Если метод не предложен, решение ищется/синтезируется через тот же цикл RU/EN/ZH.
+9. После выбора решения рабочие записи продолжаются на русском языке.
+
+Почему это даёт преимущества:
+- Снижает риск семантических ошибок: одна и та же идея проверяется в трёх языковых семантиках.
+- Ловит скрытые допущения и слабые места, которые часто незаметны в одном языковом контуре.
+- Улучшает качество выбора: у Пользователя есть минимум 2 осмысленных варианта с явными компромиссами.
+- Повышает воспроизводимость и аудитопригодность: разночтения и основания выбора фиксируются явно.
+- Уменьшает вероятность ложноположительного «всё корректно», если решение на самом деле хрупкое.
 
 ## Статус и область применения
 Это процессный фреймворк и набор артефактов для планирования и координации. Он не является библиотекой или готовым кодом.
@@ -76,14 +105,43 @@ This repository contains a logical protocol (3.1) for building large projects an
 Coding is allowed only after GA-5.
 
 ## How to Use
-1. Capture/update the math proof and invariants in `spec/docs/CONCEPT_MATH_PROOF.md` and the cross-cutting rules (sections 6-7) in `spec/docs/CONCEPT_MASTER.md` (phase C-0).
-2. Follow the active phase in .memory/GLOBAL_INDEX.md.
-3. Record outputs in .memory/LOGIC_PROTOCOL.md and PHASES/<Phase>/DIGEST.md.
-4. Use spec/docs/PHASE_SCHEMA.md and spec/docs/PHASE_GATE.md for phase format and gates.
-5. Keep progress accounting in .memory/* (WORKLOG, STATE, etc.).
-6. CLI IDE integration (opencode, factory droid, claudecode, etc.): copy the files from `agent/` into your tool's agent locations and configure models per its docs. Then copy the repository contents into your working project directory, excluding `agent/` (if your tool keeps agents separately).
-7. VS Code plugins (RooCode/KiloCode): agents are commonly represented as `modes`. Replace each mode's internal rules with the contents of the corresponding file in `agent/`, and name each mode identically to the agent name.
-8. Make the initial prompt as detailed as possible. This strongly affects follow-up questions and the cross-cutting rules that will be enforced at every stage.
+Short version: users do not manually build protocol maps, phases, lemma structures, or tracking journals. Agents handle that internally.
+
+Minimal user flow:
+1. Describe the goal and task context.
+2. Specify constraints, prohibitions, and priorities.
+3. Answer agent clarifying questions.
+4. Approve selected options at key decision points.
+
+Internal workflow handled by agents:
+1. Maintain Protocol 3.1 and the full phase/decomposition map.
+2. Run math proofing, `math-critique`, QA anti-simulation checks, and option synthesis.
+3. Keep working artifacts and records updated (`.memory/*`, `spec/docs/*`).
+
+Integration:
+1. CLI IDEs (opencode, factory droid, claudecode, etc.): copy files from `agent/` into your IDE agent locations and configure models per the IDE docs. Then copy repository contents into your working area, excluding `agent/` if agents are stored separately.
+2. VS Code plugins (RooCode/KiloCode): agents are usually represented as `modes`. Replace each mode's internal rules with the matching file from `agent/`, and keep mode names identical to agent names.
+
+## Three-Language Synthesis and Solution Selection (RU/EN/ZH)
+This is an internal agent workflow for mathematical and hard-logic decisions; end users do not execute these steps manually.
+
+Core workflow:
+1. Build the base solution and proofs in Russian (RU).
+2. Re-run the reasoning independently in English (EN).
+3. Re-run the reasoning independently in Chinese (ZH).
+4. Compare RU/EN/ZH and explicitly capture divergences (terms, quantifiers, constraints, applicability conditions, parameters).
+5. Run a dedicated `math-critique` pass to expose weak or missing points.
+6. Prepare at least 2 solution options for the user (typically stricter vs more practical).
+7. If the user provides a custom method, it must be independently validated by the math critic.
+8. If no method is provided, the solution is searched/synthesized through the same RU/EN/ZH loop.
+9. After selecting the final path, operational documentation continues in Russian.
+
+Why this improves results:
+- Reduces semantic-error risk by validating the same logic across three language semantics.
+- Surfaces hidden assumptions and weak points that are often missed in a single-language pass.
+- Improves decision quality by presenting at least 2 explicit options with trade-offs.
+- Increases reproducibility and auditability: divergences and rationale are recorded explicitly.
+- Lowers false confidence in fragile solutions that might look correct in one language only.
 
 ## Scope
 This is a process framework and artifact set for planning and coordination. It is not a code library.

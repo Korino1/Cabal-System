@@ -54,7 +54,7 @@ $header = @(
 )
 Write-Utf8NoBomLines $worklogPath $header
 
-$indexLine = "- $(Get-Date -Format 'yyyy-MM-dd HH:mm'): $fileName — $Title"
+$indexLine = "- $(Get-Date -Format 'yyyy-MM-dd HH:mm'): $fileName - $Title"
 Append-Utf8NoBomText $indexPath $indexLine
 
 # Optional rotation check

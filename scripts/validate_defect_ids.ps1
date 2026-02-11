@@ -23,13 +23,14 @@ if ($taskFiles.Count -eq 0) {
   exit 2
 }
 $defectPattern = 'DEF-\d{8}-\d{3}'
-$fixPattern = '(?i)(fix|bug|defect|исправ|дефект)'
+# Keep script ASCII-only for Windows PowerShell 5.1 compatibility (UTF-8 without BOM).
+$fixPattern = '(?i)(fix|bug|defect|\u0438\u0441\u043f\u0440\u0430\u0432|\u0434\u0435\u0444\u0435\u043a\u0442)'
 $bad = @()
 
 foreach ($file in $taskFiles) {
   $lines = Get-Content -Encoding UTF8 $file
   foreach ($line in $lines) {
-    if ($line -match 'Template' -or $line -match 'BASE — Исправления дефектов') {
+    if ($line -match 'Template' -or $line -match 'BASE') {
       continue
     }
     if ($line -match '^\s*-\s*\[[ x~]\]\s+' -and $line -match $fixPattern) {

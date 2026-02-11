@@ -208,7 +208,7 @@ Append-Utf8NoBomLines $WorklogPath @("- $nowTime [$PhaseLabel]: $Summary")
 
 if ($Checkpoint.IsPresent) {
   if (!(Test-Path -LiteralPath $ProgressPath)) {
-    Write-Utf8NoBomLines $ProgressPath @('---','id: progress',"updated: $nowDate",'---','# Progress (changelog — одна строка на событие)')
+    Write-Utf8NoBomLines $ProgressPath @('---','id: progress',"updated: $nowDate",'---','# Progress (changelog - one line per event)')
   }
   Append-Utf8NoBomLines $ProgressPath @("${nowDate}: $Summary")
 }
