@@ -46,6 +46,12 @@
 ## Трёхъязычный синтез и выборка решений (RU/EN/ZH)
 Это внутренний рабочий механизм агентов для математики и сложных логических узлов. Пользователь не обязан выполнять эти шаги вручную.
 
+Почему результаты между языками действительно могут отличаться:
+- У каждого языка своя семантика: одна и та же идея в RU/EN/ZH по-разному раскрывает логику, допущения и граничные условия.
+- Следующий токен генерируется по-разному в зависимости от языка (разные вероятностные распределения и паттерны продолжения рассуждения).
+- Обучающие материалы по языкам имели разную наполненность (объём, плотность терминов, типовые формулировки), поэтому модель может по-разному приходить к выводу.
+- На практике это даёт разные цепочки рассуждений и иногда разные математические результаты, поэтому в протоколе обязателен явный синтез RU/EN/ZH.
+
 Базовый процесс:
 1. Сформировать базовое решение и доказательства на русском (RU).
 2. Независимо повторить рассуждение на английском (EN).
@@ -124,6 +130,12 @@ Integration:
 
 ## Three-Language Synthesis and Solution Selection (RU/EN/ZH)
 This is an internal agent workflow for mathematical and hard-logic decisions; end users do not execute these steps manually.
+
+Why results can genuinely differ across languages:
+- Each language carries its own semantics, so the same idea can expose logic, assumptions, and boundary conditions differently in RU/EN/ZH.
+- Next-token generation is language-dependent (different probability distributions and continuation patterns).
+- Training corpora differ by language (volume, term density, typical formulations), so the model may reach conclusions differently.
+- In practice this changes reasoning trajectories and can produce different mathematical outcomes, which is why explicit RU/EN/ZH synthesis is mandatory in the protocol.
 
 Core workflow:
 1. Build the base solution and proofs in Russian (RU).

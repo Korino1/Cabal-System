@@ -1,6 +1,6 @@
 ---
 id: phase_gate
-updated: 2026-02-01
+updated: 2026-02-11
 owner: techlead
 ---
 # Гейт‑чеклист входа/выхода фаз
@@ -15,6 +15,7 @@ owner: techlead
 - `PHASES/<Phase>/DIGEST.md` заполнен.
 - Evidence в `PHASES/<Phase>/INDEX.md` указывает на фактические артефакты.
 - Статус фазы обновлён в `.memory/GLOBAL_INDEX.md`.
+- Для C-0: выбранный Пользователем вариант и обновлённые параметры синхронно внесены в `spec/docs/CONCEPT_MATH_PROOF.md` и `spec/docs/CONCEPT_MASTER.md`.
 
 Примечание: Evidence достаточно минимального набора, если нет споров/проверок.
 

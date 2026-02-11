@@ -1,7 +1,7 @@
 ---
 id: phase_index
 phase: GA-5
-updated: 2026-02-01
+updated: 2026-02-11
 owner: orchestrator
 ---
 # Phase GA-5 — Описание функций
@@ -14,6 +14,7 @@ owner: orchestrator
   - Подробные описания функций (без кода).
 - Out-of-scope:
   - Код/реализация.
+  - Изменение канона концепта и математических параметров (`CONCEPT_MASTER.md` / `CONCEPT_MATH_PROOF.md`).
 
 ## Inputs
 - Раздел GA-4 в `.memory/LOGIC_PROTOCOL.md`.
@@ -27,8 +28,10 @@ owner: orchestrator
 - State: pending
 - Entry Criteria:
   - GA-4 завершен; список функций готов.
+  - Канон концепта актуален: выбранный Пользователем вариант и параметры уже синхронизированы в `CONCEPT_MASTER.md` и `CONCEPT_MATH_PROOF.md`.
 - Exit Criteria:
   - Раздел GA-5 заполнен; DIGEST.md заполнен.
+  - Концептуальные обновления не перенесены в GA-5 (они фиксируются только в C-0).
 - 
 ## Evidence
 - spec/docs/blueprints/<Block>/<Method>/<Function>.md.
@@ -48,5 +51,4 @@ owner: orchestrator
 - Worklog: .memory/PHASES/GA-5/WORKLOG.md
 - State History: .memory/PHASES/GA-5/STATE_HISTORY.md
 - Digest: .memory/PHASES/GA-5/DIGEST.md
-
 

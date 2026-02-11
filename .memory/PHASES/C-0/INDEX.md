@@ -1,7 +1,7 @@
 ---
 id: phase_index
 phase: C-0
-updated: 2026-02-08
+updated: 2026-02-11
 owner: orchestrator
 ---
 # Phase C-0 — Обобщённый концепт
@@ -36,6 +36,8 @@ owner: orchestrator
   - `spec/docs/CONCEPT_MASTER.md` заполнен.
   - В `spec/docs/CONCEPT_MASTER.md` заполнен раздел 6 (сквозные правила: запреты/разрешения).
   - Проведена проверка корректности (сессия 2).
+  - После выбора Пользователем варианта и подбора параметров Математиком обновления синхронно внесены в `spec/docs/CONCEPT_MATH_PROOF.md` и `spec/docs/CONCEPT_MASTER.md`.
+  - Обновление канона зафиксировано в `PHASES/C-0/WORKLOG.md`.
   - DIGEST.md заполнен.
 
 ## Evidence
@@ -51,7 +53,8 @@ owner: orchestrator
 | INPUTS | .memory/MISSION.md; .memory/CONTEXT.md; .memory/USECASES.md; первичные материалы | required | входы |
 | CONCEPT_MATH_PROOF | INPUTS | pending | spec/docs/CONCEPT_MATH_PROOF.md |
 | CONCEPT_MASTER | INPUTS; CONCEPT_MATH_PROOF | pending | spec/docs/CONCEPT_MASTER.md |
-| DIGEST | CONCEPT_MASTER; CONCEPT_MATH_PROOF | pending | PHASES/C-0/DIGEST.md |
+| CONCEPT_SYNC | CONCEPT_MASTER; CONCEPT_MATH_PROOF; выбор Пользователя | pending | синхронизация обновлённого канона |
+| DIGEST | CONCEPT_SYNC | pending | PHASES/C-0/DIGEST.md |
 
 ## Active Links
 - Tasks: .memory/PHASES/C-0/TASKS.md
