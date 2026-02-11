@@ -68,9 +68,9 @@
 Это процессный фреймворк и набор артефактов для планирования и координации. Он не является библиотекой или готовым кодом.
 
 ## Лицензия
-В корне репозитория пока нет общего файла `LICENSE` (добавьте, чтобы явно зафиксировать условия использования).
+Собственные материалы репозитория лицензированы по `Apache License 2.0` — см. файл `LICENSE` в корне.
 
-В `arch/main/` содержатся third-party материалы Agner Fog со своими лицензиями (CC BY-SA 4.0 и GPLv3) — см. `arch/main/THIRD_PARTY.md`.
+В `arch/main/` содержатся third-party материалы Agner Fog со своими лицензиями (CC BY-SA 4.0 и GPLv3) — они не переопределяются `Apache-2.0`, см. `arch/main/THIRD_PARTY.md`.
 
 ## Вклад
 Идеи, исправления и улучшения приветствуются. Открывайте issue или pull request с чётким описанием цели.
@@ -147,9 +147,9 @@ Why this improves results:
 This is a process framework and artifact set for planning and coordination. It is not a code library.
 
 ## License
-The repository root currently has no global `LICENSE` file (add one to define usage terms).
+Repository-owned materials are licensed under `Apache License 2.0`; see the root `LICENSE` file.
 
-The `arch/main/` folder includes third-party materials by Agner Fog with their own licenses (CC BY-SA 4.0 and GPLv3); see `arch/main/THIRD_PARTY.md`.
+The `arch/main/` folder includes third-party materials by Agner Fog with their own licenses (CC BY-SA 4.0 and GPLv3); these are not overridden by `Apache-2.0`. See `arch/main/THIRD_PARTY.md`.
 
 ## Contributing
 Ideas, fixes, and improvements are welcome. Open an issue or a pull request with a clear goal.
