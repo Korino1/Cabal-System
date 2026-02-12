@@ -54,32 +54,51 @@
 3. Только после этого режим `YOLO` считается активированным.
 4. Далее каждый CONSULT обрабатывается Оркестратором: он выбирает профильного исполнителя и ставит задачу строго по сквозным правилам.
 
-## Трёхъязычный синтез и выборка решений (RU/EN/ZH)
+## Пятиязычный синтез и выборка решений (RU/EN/ZH/DE/FR)
 Это внутренний рабочий механизм агентов для математики и сложных логических узлов. Пользователь не обязан выполнять эти шаги вручную.
 
 Почему результаты между языками действительно могут отличаться:
-- У каждого языка своя семантика: одна и та же идея в RU/EN/ZH по-разному раскрывает логику, допущения и граничные условия.
+- У каждого языка своя семантика: одна и та же идея в RU/EN/ZH/DE/FR по-разному раскрывает логику, допущения и граничные условия.
 - Следующий токен генерируется по-разному в зависимости от языка (разные вероятностные распределения и паттерны продолжения рассуждения).
 - Обучающие материалы по языкам имели разную наполненность (объём, плотность терминов, типовые формулировки), поэтому модель может по-разному приходить к выводу.
-- На практике это даёт разные цепочки рассуждений и иногда разные математические результаты, поэтому в протоколе обязателен явный синтез RU/EN/ZH.
+- На практике это даёт разные цепочки рассуждений и иногда разные математические результаты, поэтому в протоколе обязателен явный синтез RU/EN/ZH/DE/FR.
 
 Базовый процесс:
 1. Сформировать базовое решение и доказательства на русском (RU).
 2. Независимо повторить рассуждение на английском (EN).
 3. Независимо повторить рассуждение на китайском (ZH).
-4. Сравнить RU/EN/ZH версии и явно зафиксировать разночтения (термины, кванторы, ограничения, условия применимости, параметры).
-5. Выполнить отдельный `math-critique`: обозначить слабые/неучтённые места и риски.
-6. Подготовить минимум 2 варианта решения для Пользователя (обычно: более строгий и более практичный).
-7. Если Пользователь предлагает свой метод, этот метод обязательно проходит независимую математическую валидацию.
-8. Если метод не предложен, решение ищется/синтезируется через тот же цикл RU/EN/ZH.
-9. После выбора решения рабочие записи продолжаются на русском языке.
+4. Независимо повторить рассуждение на немецком (DE).
+5. Независимо повторить рассуждение на французском (FR).
+6. Сравнить RU/EN/ZH/DE/FR версии и явно зафиксировать разночтения (термины, кванторы, ограничения, условия применимости, параметры).
+7. Выполнить отдельный `math-critique`: обозначить слабые/неучтённые места и риски.
+8. Подготовить минимум 2 варианта решения для Пользователя (обычно: более строгий и более практичный).
+9. Если Пользователь предлагает свой метод, этот метод обязательно проходит независимую математическую валидацию.
+10. Если метод не предложен, решение ищется/синтезируется через тот же цикл RU/EN/ZH/DE/FR.
+11. После выбора решения рабочие записи продолжаются на русском языке; итог неизменен: глобальный синтез для нахождения корректного решения.
 
 Почему это даёт преимущества:
-- Снижает риск семантических ошибок: одна и та же идея проверяется в трёх языковых семантиках.
+- Снижает риск семантических ошибок: одна и та же идея проверяется в пяти языковых семантиках.
 - Ловит скрытые допущения и слабые места, которые часто незаметны в одном языковом контуре.
 - Улучшает качество выбора: у Пользователя есть минимум 2 осмысленных варианта с явными компромиссами.
 - Повышает воспроизводимость и аудитопригодность: разночтения и основания выбора фиксируются явно.
 - Уменьшает вероятность ложноположительного «всё корректно», если решение на самом деле хрупкое.
+
+## Low-level fallback для инженерных ролей (JA -> ZH -> EN)
+Этот режим применяется для low-level задач в ролях `rust-engineer`, `simd-specialist`, `debuger`, `fixer` (и для `qa-agent` при проверке этих итераций).
+
+Когда обязателен:
+- задачи по `asm`, intrinsics, `unsafe`, FFI, ABI/calling convention, alignment/aliasing/UB, memory ordering, а также сложные performance-регрессии hot-path;
+- ситуация помечена как «нерешаемо/трудно решаемо» в текущем контексте.
+
+Цикл fallback:
+1. Проверка/поиск сначала на японском (JA).
+2. Затем проверка на китайском (ZH).
+3. Затем проверка на английском (EN).
+4. Синтез найденного и выбор итогового решения с явным обоснованием.
+
+Фиксация результата:
+- В отчёте/WORKLOG фиксируется, что именно найдено на JA/ZH/EN и почему выбран итоговый вариант.
+- После нахождения рабочего направления дальнейшая рабочая фиксация ведётся на русском языке (RU).
 
 ## Статус и область применения
 Это процессный фреймворк и набор артефактов для планирования и координации. Он не является библиотекой или готовым кодом.
@@ -150,32 +169,51 @@ How `YOLO` works:
 3. Only then is `YOLO` considered active.
 4. After activation, each CONSULT is handled by the Orchestrator, who assigns a suitable subagent and enforces all cross-cutting rules.
 
-## Three-Language Synthesis and Solution Selection (RU/EN/ZH)
+## Five-Language Synthesis and Solution Selection (RU/EN/ZH/DE/FR)
 This is an internal agent workflow for mathematical and hard-logic decisions; end users do not execute these steps manually.
 
 Why results can genuinely differ across languages:
-- Each language carries its own semantics, so the same idea can expose logic, assumptions, and boundary conditions differently in RU/EN/ZH.
+- Each language carries its own semantics, so the same idea can expose logic, assumptions, and boundary conditions differently in RU/EN/ZH/DE/FR.
 - Next-token generation is language-dependent (different probability distributions and continuation patterns).
 - Training corpora differ by language (volume, term density, typical formulations), so the model may reach conclusions differently.
-- In practice this changes reasoning trajectories and can produce different mathematical outcomes, which is why explicit RU/EN/ZH synthesis is mandatory in the protocol.
+- In practice this changes reasoning trajectories and can produce different mathematical outcomes, which is why explicit RU/EN/ZH/DE/FR synthesis is mandatory in the protocol.
 
 Core workflow:
 1. Build the base solution and proofs in Russian (RU).
 2. Re-run the reasoning independently in English (EN).
 3. Re-run the reasoning independently in Chinese (ZH).
-4. Compare RU/EN/ZH and explicitly capture divergences (terms, quantifiers, constraints, applicability conditions, parameters).
-5. Run a dedicated `math-critique` pass to expose weak or missing points.
-6. Prepare at least 2 solution options for the user (typically stricter vs more practical).
-7. If the user provides a custom method, it must be independently validated by the math critic.
-8. If no method is provided, the solution is searched/synthesized through the same RU/EN/ZH loop.
-9. After selecting the final path, operational documentation continues in Russian.
+4. Re-run the reasoning independently in German (DE).
+5. Re-run the reasoning independently in French (FR).
+6. Compare RU/EN/ZH/DE/FR and explicitly capture divergences (terms, quantifiers, constraints, applicability conditions, parameters).
+7. Run a dedicated `math-critique` pass to expose weak or missing points.
+8. Prepare at least 2 solution options for the user (typically stricter vs more practical).
+9. If the user provides a custom method, it must be independently validated by the math critic.
+10. If no method is provided, the solution is searched/synthesized through the same RU/EN/ZH/DE/FR loop.
+11. After selecting the final path, operational documentation continues in Russian; the final goal remains a global synthesis to find the correct solution.
 
 Why this improves results:
-- Reduces semantic-error risk by validating the same logic across three language semantics.
+- Reduces semantic-error risk by validating the same logic across five language semantics.
 - Surfaces hidden assumptions and weak points that are often missed in a single-language pass.
 - Improves decision quality by presenting at least 2 explicit options with trade-offs.
 - Increases reproducibility and auditability: divergences and rationale are recorded explicitly.
 - Lowers false confidence in fragile solutions that might look correct in one language only.
+
+## Low-Level Fallback for Engineering Roles (JA -> ZH -> EN)
+This mode is used for low-level tasks in `rust-engineer`, `simd-specialist`, `debuger`, `fixer` (and by `qa-agent` when reviewing those iterations).
+
+When it is mandatory:
+- tasks involving `asm`, intrinsics, `unsafe`, FFI, ABI/calling convention, alignment/aliasing/UB, memory ordering, and hard hot-path performance regressions;
+- the case is marked as "unsolved/hard to solve" in the current context.
+
+Fallback cycle:
+1. Analyze/search in Japanese (JA) first.
+2. Then analyze in Chinese (ZH).
+3. Then analyze in English (EN).
+4. Synthesize findings and choose a final solution with explicit rationale.
+
+Result logging:
+- The report/WORKLOG must explicitly state what was found in JA/ZH/EN and why the final option was chosen.
+- After a workable direction is found, ongoing operational documentation continues in Russian (RU).
 
 ## Scope
 This is a process framework and artifact set for planning and coordination. It is not a code library.
