@@ -10,7 +10,7 @@ updated: 2026-02-11
 - [ ] T C-0.1 — Сбор и синтез концепта [Owner: conceptualizer]
 - [ ] T C-0.2 — Дублирующая верификация концепта на EN [Owner: conceptualizer]
 - [ ] T C-0.3 — Дублирующая верификация концепта на ZH [Owner: conceptualizer]
-- [ ] T C-0.4 — Синтез RU/EN/ZH и фиксация расхождений [Owner: conceptualizer]
+- [ ] T C-0.4 — Синтез RU/EN/ZH/DE/FR и фиксация расхождений [Owner: conceptualizer]
 - [ ] T C-0.5 — Критический math-critique и подготовка вариантов решения [Owner: mathematician]
 - [ ] T C-0.6 — Синхронизация канона после выбора Пользователя (обновить CONCEPT_MATH_PROOF + CONCEPT_MASTER) [Owner: conceptualizer]
 
