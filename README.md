@@ -27,6 +27,12 @@
 
 ## Как пользоваться
 Коротко: пользователю не нужно вручную собирать карту логики, фазы, леммы и служебные журналы. Это делают агенты.
+ 
+## Как начать.
+Выбираете агента\режим  - Оркестратор  и пишите ваш промт\задание. Не экономьте инфомацию и токены. предоставьте максимум файлов, мат концептов, библиотек.
+всего что должно по вашему мнению работать в проекте и быть в нём задействованным. Таак же сразу описывайте ваши критерии, запреты и разрешения. обязательно указываете о включении запретов и 
+критериев в включении в сквозные правила. В заивимости от проекта и модели, вам предложат либо сразу решения консультаций-развилки выполнения, решать вручную, те вашим мнемнием.
+Либо автоматически -YOLO. В случае YOLO  вам надо будет задать более широкие сквозные правила,которые лягут в основу выбора решений каждой логической развилки.
 
 Минимальный сценарий для пользователя:
 1. Описать цель и контекст задачи.
@@ -84,28 +90,19 @@
 - Уменьшает вероятность ложноположительного «всё корректно», если решение на самом деле хрупкое.
 
 ## Edit Harness для правок кода и документов
-В Cabal System внедрён метод класса *harness editing*: детерминированный цикл `read -> hash verify -> apply` вместо «слепых» правок по месту.
+Для повышения точности правок в Cabal System введён обязательный протокол `read -> hash verify -> apply`.
 
-Что внедрено в проект:
-- Канон протокола: `spec/docs/EDIT_HARNESS.md`.
-- Чтение диапазона + хеш: `scripts/harness_read.ps1`.
-- Применение операций по спецификации: `scripts/harness_apply.ps1`.
-- Сквозное правило в каноне: `spec/docs/CONCEPT_MASTER.md` (раздел 6.8).
-- Протокольный гейт: `.memory/LOGIC_PROTOCOL.md`.
-- Обязательный QA-контроль применения harness: `agent/qa-agent.md`.
-- Синхронизация ролей и plugin-модов: `agent/*.md`, `agent/Kilocode/custom_modes.yaml`, `agent/Roocode/custom_modes.yaml`.
+Что это даёт:
+- Снижает ошибки при частичных/пересекающихся правках (защита от `stale edit`).
+- Делает изменения воспроизводимыми: каждая операция проверяется по `expected_hash`.
+- Уменьшает риск «слепых» замен и скрытых регрессий в документах и коде.
 
-Минимальный цикл работы:
-1. Прочитать нужный диапазон через `harness_read.ps1` и получить `range_hash`.
-2. Подготовить операцию (`replace_range` / `insert_after` / `delete_range`) с `expected_hash`.
-3. Применить спецификацию через `harness_apply.ps1`.
-4. Если хеш не совпал (`stale edit`) — правка отклоняется, выполняется повторный read и пересборка операции.
+Где зафиксировано:
+- Канон: `spec/docs/EDIT_HARNESS.md`.
+- Чтение диапазона: `scripts/harness_read.ps1`.
+- Применение операций: `scripts/harness_apply.ps1`.
 
-Почему это важно:
-- Снижает риск повреждения файлов при параллельных/частичных правках.
-- Повышает воспроизводимость правок и прозрачность ревью.
-- Убирает зависимость от локальных абсолютных путей: используются только repo-relative пути.
-- Лучше подходит для open-source потока через GitHub, где состояние файлов может меняться между итерациями.
+Для всех ролей с правом правки это сквозное правило и QA-гейт.
 
 ## Low-level fallback для инженерных ролей (JA -> ZH -> EN)
 Этот режим применяется для low-level задач в ролях `rust-engineer`, `simd-specialist`, `debuger`, `fixer` (и для `qa-agent` при проверке этих итераций).
@@ -223,28 +220,19 @@ Why this improves results:
 - Lowers false confidence in fragile solutions that might look correct in one language only.
 
 ## Edit Harness for Code and Document Changes
-Cabal System now uses a *harness editing* method: a deterministic `read -> hash verify -> apply` loop instead of blind in-place edits.
+Cabal System now enforces a mandatory `read -> hash verify -> apply` protocol for file edits.
 
-What was integrated:
-- Protocol canon: `spec/docs/EDIT_HARNESS.md`.
-- Range read + hash: `scripts/harness_read.ps1`.
-- Spec-based apply: `scripts/harness_apply.ps1`.
-- Cross-cutting canon rule: `spec/docs/CONCEPT_MASTER.md` (section 6.8).
-- Protocol gate: `.memory/LOGIC_PROTOCOL.md`.
-- Mandatory QA validation of harness evidence: `agent/qa-agent.md`.
-- Synced role specs and plugin modes: `agent/*.md`, `agent/Kilocode/custom_modes.yaml`, `agent/Roocode/custom_modes.yaml`.
+Why this helps:
+- Reduces partial-overlap edit failures (`stale edit` protection).
+- Makes edits reproducible: each operation is checked against `expected_hash`.
+- Lowers the risk of blind replacements and hidden regressions in docs/code.
 
-Minimal workflow:
-1. Read the target range with `harness_read.ps1` and capture `range_hash`.
-2. Prepare an operation (`replace_range` / `insert_after` / `delete_range`) with `expected_hash`.
-3. Apply the spec via `harness_apply.ps1`.
-4. If hash mismatch occurs (`stale edit`), the operation is rejected; re-read and rebuild the patch.
+Where it is defined:
+- Canon: `spec/docs/EDIT_HARNESS.md`.
+- Range read tool: `scripts/harness_read.ps1`.
+- Apply tool: `scripts/harness_apply.ps1`.
 
-Why this matters:
-- Reduces file corruption risk during overlapping/parallel edits.
-- Improves reproducibility and auditability of changes.
-- Removes dependency on user-specific absolute paths by enforcing repo-relative paths.
-- Fits open-source GitHub flows where file state can change between iterations.
+For editing roles this is a cross-cutting rule and a QA gate.
 
 ## Low-Level Fallback for Engineering Roles (JA -> ZH -> EN)
 This mode is used for low-level tasks in `rust-engineer`, `simd-specialist`, `debuger`, `fixer` (and by `qa-agent` when reviewing those iterations).
