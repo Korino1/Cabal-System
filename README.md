@@ -9,7 +9,7 @@
 - spec/ — формальные документы (контракты, ADR, схема и гейты фаз, концепт + мат.обоснование).
 - arch/ — архитектурные заметки, регистровые карты и референсы для низкоуровневой оптимизации (Zen4: `arch/zen4/zen4_registers.md`; Agner Fog: `arch/main/` и `arch/main/THIRD_PARTY.md`).
 - agent/ — роли субагентов и их обязанности.
-- scripts/ — утилиты (например, checkpoint).
+- scripts/ — утилиты (checkpoint, phase tools, Edit Harness scripts).
 - ENG/ — (опционально) английское зеркало ключевых документов.
 
 ## Коротко о протоколе
@@ -27,11 +27,7 @@
 
 ## Как пользоваться
 Коротко: пользователю не нужно вручную собирать карту логики, фазы, леммы и служебные журналы. Это делают агенты.
-С чего начать?  Выберите режим Оркестратора.  Наберите ваш промт. Не экономьте токены, Тут именно тот случай чем больше и подробнее - тем лучше.
- предоставьте как можно больше материала по вашему проекту. В идеале если вы будете иметь готовый математический концепт в txt\tex.
- Сразу опишите критерии валидации проекта, какие методы,библиотеки, можно либо наоборот,запрещены. Шанс расширить ваши критерии будет в запросе только 1 раз (!). 
- В процессе между задачами дополнить сквозные правила можно,но межитерационно - не даст гарантию применимости на весь проект. Отсюда думайте загодя. Лучше обмозгуйте лишние 10-25 минут,но предоставьте Максимально исчерпывающию информацию.
- Даёте стартовый промт Оркестратору и всё..процесс автоматически пошёл. В зависимости от вашего преокта и модели исполнителя, будет предложен вариант YOLO  либо до глобального концепта,либо перед фазой GA1.
+
 Минимальный сценарий для пользователя:
 1. Описать цель и контекст задачи.
 2. Указать ограничения, запреты и приоритеты.
@@ -87,6 +83,21 @@
 - Повышает воспроизводимость и аудитопригодность: разночтения и основания выбора фиксируются явно.
 - Уменьшает вероятность ложноположительного «всё корректно», если решение на самом деле хрупкое.
 
+## Edit Harness для правок кода и документов
+Для повышения точности правок в Cabal System введён обязательный протокол `read -> hash verify -> apply`.
+
+Что это даёт:
+- Снижает ошибки при частичных/пересекающихся правках (защита от `stale edit`).
+- Делает изменения воспроизводимыми: каждая операция проверяется по `expected_hash`.
+- Уменьшает риск «слепых» замен и скрытых регрессий в документах и коде.
+
+Где зафиксировано:
+- Канон: `spec/docs/EDIT_HARNESS.md`.
+- Чтение диапазона: `scripts/harness_read.ps1`.
+- Применение операций: `scripts/harness_apply.ps1`.
+
+Для всех ролей с правом правки это сквозное правило и QA-гейт.
+
 ## Low-level fallback для инженерных ролей (JA -> ZH -> EN)
 Этот режим применяется для low-level задач в ролях `rust-engineer`, `simd-specialist`, `debuger`, `fixer` (и для `qa-agent` при проверке этих итераций).
 
@@ -128,7 +139,7 @@ This repository contains a logical protocol (3.1) for building large projects an
 - spec/ — formal documents (contracts, ADRs, phase schema/gates, concept + math proof).
 - arch/ — architecture notes, register maps, and low-level optimization references (Zen4: `arch/zen4/zen4_registers.md`; Agner Fog: `arch/main/` and `arch/main/THIRD_PARTY.md`).
 - agent/ — subagent roles and responsibilities.
-- scripts/ — utilities (e.g., checkpoint).
+- scripts/ — utilities (checkpoint, phase tools, Edit Harness scripts).
 - ENG/ — (optional) English mirror of core docs.
 
 ## Protocol Overview
@@ -201,6 +212,21 @@ Why this improves results:
 - Improves decision quality by presenting at least 2 explicit options with trade-offs.
 - Increases reproducibility and auditability: divergences and rationale are recorded explicitly.
 - Lowers false confidence in fragile solutions that might look correct in one language only.
+
+## Edit Harness for Code and Document Changes
+Cabal System now enforces a mandatory `read -> hash verify -> apply` protocol for file edits.
+
+Why this helps:
+- Reduces partial-overlap edit failures (`stale edit` protection).
+- Makes edits reproducible: each operation is checked against `expected_hash`.
+- Lowers the risk of blind replacements and hidden regressions in docs/code.
+
+Where it is defined:
+- Canon: `spec/docs/EDIT_HARNESS.md`.
+- Range read tool: `scripts/harness_read.ps1`.
+- Apply tool: `scripts/harness_apply.ps1`.
+
+For editing roles this is a cross-cutting rule and a QA gate.
 
 ## Low-Level Fallback for Engineering Roles (JA -> ZH -> EN)
 This mode is used for low-level tasks in `rust-engineer`, `simd-specialist`, `debuger`, `fixer` (and by `qa-agent` when reviewing those iterations).

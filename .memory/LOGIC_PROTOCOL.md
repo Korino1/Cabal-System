@@ -336,6 +336,14 @@
   - `spec/docs/CONCEPT_MATH_PROOF.md`: раздел multilingual verification (RU/EN/ZH/DE/FR summary + divergences + final synthesis);
   - `.memory/PHASES/<Active>/WORKLOG.md`: факт прохождения 5-сессионной проверки и ссылка на итог.
 
+## Harness-протокол правок (обязателен для реализации и редактирования документов)
+- Канон протокола правок: `spec/docs/EDIT_HARNESS.md`.
+- Перед правкой обязателен `read_range` (`scripts/harness_read.ps1`) с фиксацией `range_hash`.
+- Любая операция правки выполняется через `scripts/harness_apply.ps1` и включает `expected_hash`.
+- При несовпадении хеша (`stale edit`) правка отклоняется: перечитать диапазон, пересобрать правку; при конфликте — `CONSULT`.
+- «Слепые» текстовые замены без hash-check запрещены.
+- QA обязан проверять evidence применения harness-протокола для каждой итерации с файловыми правками.
+
 ## Оркестратор — Назначения
 ### Purpose
 - Вести реестр назначений субагентов: объект работы, ID сессии, статус.
