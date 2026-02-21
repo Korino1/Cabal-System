@@ -60,6 +60,12 @@
 3. Только после этого режим `YOLO` считается активированным.
 4. Далее каждый CONSULT обрабатывается Оркестратором: он выбирает профильного исполнителя и ставит задачу строго по сквозным правилам.
 
+## Обязательное ознакомление со сквозными правилами
+- Перед началом каждой новой задачи/итерации любой агент и субагент обязан прочитать полный актуальный список сквозных правил из `spec/docs/CONCEPT_MASTER.md` (раздел 6).
+- Если правила были расширены, исполнитель сначала знакомится со всем перечнем (базовые + новые), и только после этого начинает работу.
+- В режиме `YOLO` Оркестратор обязан передавать исполнителю в каждой CONSULT-постановке полный актуальный набор сквозных правил.
+- Работа без актуального ознакомления со сквозными правилами считается нарушением протокола.
+
 ## Пятиязычный синтез и выборка решений (RU/EN/ZH/DE/FR)
 Это внутренний рабочий механизм агентов для математики и сложных логических узлов. Пользователь не обязан выполнять эти шаги вручную.
 
@@ -189,6 +195,12 @@ How `YOLO` works:
 2. These rules are recorded as additions to existing cross-cutting rules.
 3. Only then is `YOLO` considered active.
 4. After activation, each CONSULT is handled by the Orchestrator, who assigns a suitable subagent and enforces all cross-cutting rules.
+
+## Mandatory Rule Review Before Work
+- Before each new task/iteration, every agent and subagent must read the full current cross-cutting rules in `spec/docs/CONCEPT_MASTER.md` (section 6).
+- If rules were extended, the assignee must review the complete list (base + additions) before starting work.
+- In `YOLO` mode, the Orchestrator must include the full current cross-cutting rule set in every CONSULT assignment.
+- Any work started without this review is a protocol violation.
 
 ## Five-Language Synthesis and Solution Selection (RU/EN/ZH/DE/FR)
 This is an internal agent workflow for mathematical and hard-logic decisions; end users do not execute these steps manually.
