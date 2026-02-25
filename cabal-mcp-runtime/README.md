@@ -113,6 +113,13 @@ powershell -ExecutionPolicy Bypass -File .\scripts\check-final-readiness.ps1 -Id
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\check-final-readiness.ps1 -IdeE2EReportPath .\..\spec\docs\ide_e2e_report.json -VsCodeLogPath .\..\spec\docs\ide_logs\vscode.log -JetBrainsLogPath .\..\spec\docs\ide_logs\jetbrains.log -RepoOwner "<owner>" -RepoName "<repo>" -Branch "main"
 ```
+`check-final-readiness.ps1` сохраняет machine-readable итог в:
+- `.cabal_runtime/final_readiness_result.json` (можно переопределить `-FinalSummaryPath`).
+
+Валидация final readiness summary:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\validate-final-readiness-summary.ps1 -SummaryPath .\.cabal_runtime\final_readiness_result.json
+```
 
 Шаблоны IDE-адаптеров MCP (VS Code/JetBrains):
 - `../spec/examples/ide/README.md`
@@ -123,6 +130,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\check-final-readiness.ps1 -Id
 - `../spec/contracts/ide_e2e_report.pass.json`
 - `../spec/contracts/RELEASE_GATE_SUMMARY.schema.json`
 - `../spec/contracts/release_gate_summary.pass.json`
+- `../spec/contracts/FINAL_READINESS_SUMMARY.schema.json`
+- `../spec/contracts/final_readiness_summary.pass.json`
 - `scripts/validate-ide-e2e-report.ps1`
 - `scripts/new-ide-e2e-report.ps1`
 - `scripts/validate-release-gate-summary.ps1`
@@ -130,9 +139,11 @@ powershell -ExecutionPolicy Bypass -File .\scripts\check-final-readiness.ps1 -Id
 - `scripts/check-final-readiness.ps1`
 - `scripts/apply-and-verify-branch-protection.ps1`
 - `scripts/validate-real-ide-e2e-artifacts.ps1`
+- `scripts/validate-final-readiness-summary.ps1`
 
 Schema smoke gate workflow: `.github/workflows/cabal-mcp-runtime-ide-e2e-report-schema.yml`.
 Schema smoke gate workflow (release summary): `.github/workflows/cabal-mcp-runtime-release-summary-schema.yml`.
+Schema smoke gate workflow (final readiness summary): `.github/workflows/cabal-mcp-runtime-final-readiness-summary-schema.yml`.
 
 Включает transport-level MCP smoke:
 - `tests/mcp_stdio_e2e.rs`:

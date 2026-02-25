@@ -52,3 +52,8 @@ powershell -ExecutionPolicy Bypass -File .\cabal-mcp-runtime\scripts\check-final
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\cabal-mcp-runtime\scripts\check-final-readiness.ps1 -IdeE2EReportPath .\spec\docs\ide_e2e_report.json -VsCodeLogPath .\spec\docs\ide_logs\vscode.log -JetBrainsLogPath .\spec\docs\ide_logs\jetbrains.log -RepoOwner "<owner>" -RepoName "<repo>" -Branch "main"
 ```
+
+## 7) Валидация итогового final readiness summary
+```powershell
+powershell -ExecutionPolicy Bypass -File .\cabal-mcp-runtime\scripts\validate-final-readiness-summary.ps1 -SummaryPath .\cabal-mcp-runtime\.cabal_runtime\final_readiness_result.json
+```

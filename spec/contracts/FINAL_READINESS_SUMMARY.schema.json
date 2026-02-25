@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cabal://contracts/final_readiness_summary.schema.json",
+  "title": "Cabal Final Readiness Summary",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "timestamp_utc",
+    "gate",
+    "ide_e2e_report_path",
+    "release_gate_summary_path",
+    "real_ide_logs_provided",
+    "verify_mode",
+    "branch",
+    "steps"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "timestamp_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "gate": {
+      "type": "string",
+      "enum": [
+        "PASS",
+        "FAIL"
+      ]
+    },
+    "ide_e2e_report_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "release_gate_summary_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "real_ide_logs_provided": {
+      "type": "boolean"
+    },
+    "vscode_log_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "jetbrains_log_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "verify_mode": {
+      "type": "string",
+      "enum": [
+        "github",
+        "snapshot"
+      ]
+    },
+    "repo_owner": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "repo_name": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "branch": {
+      "type": "string",
+      "minLength": 1
+    },
+    "failure": {
+      "type": "string"
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "status",
+          "command"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PASS",
+              "FAIL"
+            ]
+          },
+          "command": {
+            "type": "string",
+            "minLength": 1
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

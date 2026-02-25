@@ -1523,6 +1523,15 @@ Done когда:
 - Текущий внешний блокер финализации не кодовый: для применения branch protection нужен `gh` или `GITHUB_TOKEN`/`GH_TOKEN` в окружении.
 - `P3` 100%, `P6` 99%, `P8` 100%, `P10` 99%, `P12` 99%, `P11` 100%.
 
+### 2026-02-25 (update-117)
+- Финализирован machine-readable контракт итоговой готовности:
+  - `check-final-readiness.ps1` теперь всегда пишет `final_readiness_result.json` со step-level статусами и метаданными режима проверки,
+  - добавлены `spec/contracts/FINAL_READINESS_SUMMARY.schema.json` и fixture `spec/contracts/final_readiness_summary.pass.json`,
+  - добавлен валидатор `cabal-mcp-runtime/scripts/validate-final-readiness-summary.ps1`,
+  - добавлен schema-smoke workflow `.github/workflows/cabal-mcp-runtime-final-readiness-summary-schema.yml`.
+- `README` и `CABAL_GITHUB_HARDENING_RUNBOOK.md` синхронизированы с командами валидации final readiness summary.
+- `P3` 100%, `P6` 99%, `P8` 100%, `P10` 99%, `P12` 99%, `P11` 100%.
+
 ### 2026-02-24 (update-39)
 - README runtime синхронизирован с текущим состоянием после `P9`:
   - добавлен список core-модулей,

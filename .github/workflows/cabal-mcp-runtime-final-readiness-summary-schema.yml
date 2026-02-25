@@ -1,0 +1,29 @@
+name: cabal-mcp-runtime-final-readiness-summary-schema
+
+on:
+  push:
+    paths:
+      - "spec/contracts/FINAL_READINESS_SUMMARY.schema.json"
+      - "spec/contracts/final_readiness_summary.pass.json"
+      - "cabal-mcp-runtime/scripts/validate-final-readiness-summary.ps1"
+      - ".github/workflows/cabal-mcp-runtime-final-readiness-summary-schema.yml"
+  pull_request:
+    paths:
+      - "spec/contracts/FINAL_READINESS_SUMMARY.schema.json"
+      - "spec/contracts/final_readiness_summary.pass.json"
+      - "cabal-mcp-runtime/scripts/validate-final-readiness-summary.ps1"
+      - ".github/workflows/cabal-mcp-runtime-final-readiness-summary-schema.yml"
+  workflow_dispatch:
+
+jobs:
+  final-readiness-summary-schema-gate:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate final readiness summary fixture
+        run: powershell -ExecutionPolicy Bypass -File .\cabal-mcp-runtime\scripts\validate-final-readiness-summary.ps1 -SummaryPath .\spec\contracts\final_readiness_summary.pass.json

@@ -1,0 +1,36 @@
+{
+  "schema_version": "1.0.0",
+  "timestamp_utc": "2026-02-25T00:00:00Z",
+  "gate": "PASS",
+  "ide_e2e_report_path": "spec/contracts/ide_e2e_report.pass.json",
+  "release_gate_summary_path": "cabal-mcp-runtime/.cabal_runtime/release_gate_summary.json",
+  "real_ide_logs_provided": true,
+  "vscode_log_path": "spec/docs/ide_logs/vscode.log",
+  "jetbrains_log_path": "spec/docs/ide_logs/jetbrains.log",
+  "verify_mode": "snapshot",
+  "repo_owner": null,
+  "repo_name": null,
+  "branch": "main",
+  "steps": [
+    {
+      "name": "validate_real_ide_artifacts",
+      "status": "PASS",
+      "command": "powershell -ExecutionPolicy Bypass -File scripts/validate-real-ide-e2e-artifacts.ps1"
+    },
+    {
+      "name": "strict_release_gate",
+      "status": "PASS",
+      "command": "powershell -ExecutionPolicy Bypass -File scripts/check-release-gates.ps1"
+    },
+    {
+      "name": "validate_release_summary",
+      "status": "PASS",
+      "command": "powershell -ExecutionPolicy Bypass -File scripts/validate-release-gate-summary.ps1"
+    },
+    {
+      "name": "verify_required_status_checks",
+      "status": "PASS",
+      "command": "powershell -ExecutionPolicy Bypass -File scripts/verify-required-status-checks.ps1"
+    }
+  ]
+}
