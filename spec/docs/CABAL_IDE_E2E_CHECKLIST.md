@@ -1,6 +1,7 @@
 # CABAL IDE E2E Checklist (VS Code / JetBrains)
 
 Цель: подтвердить реальное поведение `cabal-mcp-runtime` в IDE MCP-клиентах, а не только в тестах stdio.
+Контекст выполнения команд в этом документе: корень репозитория `Cabal-System`.
 
 ## 1) Подготовка
 1. Сборка runtime:

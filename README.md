@@ -2,7 +2,14 @@
 ![Cabal System схема](https://raw.githubusercontent.com/Korino1/Cabal-System/main/.memory/Cabal%20System.png)
 
 ## Назначение
-Этот репозиторий содержит логическую схему (Protocol 3.1) для создания больших проектов и координации AI/агент‑workflow. Подход документационный: от концепта к логике, методам, функциям и интеграции. Код создаётся только после завершения описания функций.
+`Cabal System` — это система управления работой ИИ в проекте.
+
+Простыми словами:
+- вы подключаете Cabal через MCP в IDE;
+- ставите задачу обычным текстом;
+- Cabal управляет порядком шагов, проверками, ограничениями и логированием.
+
+Главная идея: не “свободный чат”, а управляемый процесс с правилами и контролем качества.
 
 ## Состав репозитория
 - .memory/ — рабочая память и состояние (миссия, контекст, задачи, фазы, журналы).
@@ -11,6 +18,17 @@
 - agent/ — роли субагентов и их обязанности.
 - scripts/ — утилиты (checkpoint, phase tools, Edit Harness scripts).
 - ENG/ — (опционально) английское зеркало ключевых документов.
+- cabal-mcp-runtime/ — программный runtime Cabal (MCP control plane, policy/gate/audit/proxy).
+
+## Cabal-MCP режим (актуальный)
+- Для исполнения логики проектов используйте `cabal-mcp-runtime` через MCP (`stdio`).
+- Документы схемы (`spec/docs/*`, `.memory/*`) остаются источником формализации и аудита, но не обязательны для чтения моделью в `MCP-only` контуре.
+- Для строгого file-based gate включайте `cabal.set_gate_policy {"strict_artifacts": true}`.
+
+## Статус агентского контура (GitHub)
+- Все профили в `agent/*.md` актуализированы под `MCP-only`.
+- В каждом профиле добавлен обязательный раздел `MCP-Only Контракт (Cabal-MCP, обязательно)`.
+- Файлы логической схемы используются как артефакты формализации и аудита, а не как исполняемые инструкции для модели.
 
 ## Коротко о протоколе
 - C-0 — обобщённый концепт.
@@ -26,28 +44,121 @@
 Кодирование допускается только после GA-5.
 
 ## Как пользоваться
-Коротко: пользователю не нужно вручную собирать карту логики, фазы, леммы и служебные журналы. Это делают агенты.
- 
-## Как начать.
-Выбираете агента\режим  - Оркестратор  и пишите ваш промт\задание. Не экономьте инфомацию и токены. предоставьте максимум файлов, мат концептов, библиотек.
-всего что должно по вашему мнению работать в проекте и быть в нём задействованным. Таак же сразу описывайте ваши критерии, запреты и разрешения. обязательно указываете о включении запретов и 
-критериев в включении в сквозные правила. В заивимости от проекта и модели, вам предложат либо сразу решения консультаций-развилки выполнения, решать вручную, те вашим мнемнием.
-Либо автоматически -YOLO. В случае YOLO  вам надо будет задать более широкие сквозные правила,которые лягут в основу выбора решений каждой логической развилки.
+Коротко: пользователю не нужно вручную вести фазы, журналы и служебные проверки. Это делает Cabal.
 
 Минимальный сценарий для пользователя:
-1. Описать цель и контекст задачи.
-2. Указать ограничения, запреты и приоритеты.
-3. Ответить на уточняющие вопросы агентов.
-4. Подтвердить выбранный вариант на ключевых развилках.
+1. Подключить Cabal-MCP в IDE.
+2. Описать цель проекта простым языком.
+3. Сразу указать ограничения: что запрещено, что критично, какие сроки и приоритеты.
+4. Выбрать режим CONSULT: `USER_TRACKING` или `YOLO`.
+5. Подтверждать ключевые развилки (или делегировать их Оркестратору в `YOLO`).
 
-Внутреннюю работу выполняют агенты:
-1. Ведут протокол 3.1 и полную карту фаз/декомпозиции.
-2. Делают математическое обоснование, `math-critique`, QA-анти-имитацию и синтез вариантов.
-3. Поддерживают рабочие артефакты и записи (`.memory/*`, `spec/docs/*`).
+Что делает система автоматически:
+1. Ведёт фазовый протокол и контроль переходов.
+2. Проверяет правила, ограничения и гейты.
+3. Маршрутизирует CONSULT-запросы нужным ролям.
+4. Ведёт audit/log для воспроизводимости.
 
-Интеграция:
-1. CLI IDE (opencode, factory droid, claudecode и т.п.): скопируйте файлы из `agent/` в нужные пути вашей IDE и настройте модели по документации IDE. Затем копируйте содержимое репозитория в рабочую область, кроме `agent/` (если IDE хранит агентов отдельно).
-2. VS Code плагины (RooCode/KiloCode): агенты обычно представлены в виде `modes`. Замените внутренние правила каждого mode содержимым соответствующего файла из `agent/` и задайте mode имя, идентичное имени агента.
+## Быстрый старт (без программирования)
+1. Установите IDE/плагин с поддержкой MCP (например RooCode).
+2. Добавьте MCP-сервер Cabal в настройки IDE (путь к `cabal-mcp-runtime`).
+3. Перезапустите IDE и откройте чат с моделью.
+4. Напишите задачу в формате:
+`Цель + ограничения + что запрещено + какой результат нужен`.
+5. Работайте через Cabal-инструменты, а не через ручные “обходы”.
+
+## Подключение Cabal-MCP (детально)
+Ниже самый простой и надёжный путь для Windows.
+
+1. Подготовьте бинарник Cabal.
+   - Если у вас уже есть файл `C:\cabal-mcp\cabal-mcp-runtime-rooformat.exe`, можно использовать его.
+   - Если файла нет, соберите его из `cabal-mcp-runtime` и укажите полный путь к `cabal-mcp-runtime.exe`.
+2. Откройте в IDE настройки MCP.
+   - Найдите раздел MCP Servers (или “Добавить MCP сервер”).
+   - Нажмите “Add server”.
+3. Добавьте сервер с именем `cabal-server`.
+   - Транспорт: `stdio`.
+   - Команда: полный путь к exe.
+   - Аргументы: пусто (`[]`).
+   - Переменные окружения: как в примере ниже.
+4. Сохраните настройки и перезапустите IDE (или MCP panel).
+5. Проверьте подключение.
+   - В MCP-панели сервер должен быть в статусе `Connected`.
+   - В списке инструментов должен появиться Cabal (минимальный bootstrap-набор).
+6. Сделайте быструю проверку в чате модели:
+   - запросите `cabalget_state`;
+   - затем `cabaltool_search` с простым запросом, например `"state"`.
+
+Важно:
+- Путь к `command` должен быть абсолютным.
+- Если путь содержит пробелы, всё равно указывайте его одной строкой в поле `command` (не разбивайте на части).
+- Не запускайте через `cmd /c ...`, если IDE этого не требует.
+
+Пример MCP-конфига (Windows, `stdio`):
+```json
+{
+  "transport": "stdio",
+  "command": "C:\\cabal-mcp\\cabal-mcp-runtime-rooformat.exe",
+  "args": [],
+  "env": {
+    "CABAL_MCP_TOOL_NAME_FORMAT": "roo",
+    "CABAL_MCP_COMPAT_ALIAS_PROFILE": "none"
+  }
+}
+```
+
+Если не подключается:
+1. Ошибка `MCP error -32001: Request timed out`:
+   - чаще всего неверный путь в `command`;
+   - проверьте, что файл существует и запускается вручную.
+2. Ошибка `Connection closed`:
+   - обычно процесс завершился сразу из-за неправильного конфига;
+   - проверьте JSON на лишние символы и перезапустите IDE.
+3. Ошибка вида `'D:\\... is not recognized...'`:
+   - путь был передан некорректно (разбит из-за пробелов);
+   - укажите путь как один полный путь к `.exe`.
+
+## Важно про инструменты MCP
+- Cabal использует role-based доступ: набор инструментов зависит от активной роли.
+- Включён lazy-режим: в `tools/list` показывается только минимальный bootstrap-набор, а остальные инструменты подтягиваются через поиск.
+- Для поиска используйте `cabal.tool_search`, для полной схемы конкретного инструмента — `cabal.get_tool_schema`.
+- Для последовательных вызовов используйте `cabal.programmatic_call` (уменьшает нагрузку на контекст).
+
+## Примеры запуска (Cabal MCP Runtime)
+Из корня репозитория:
+
+1. Быстрый локальный smoke:
+```powershell
+cd .\cabal-mcp-runtime
+cargo test -q
+```
+
+2. Консольная справка и pre-start gate-флаг:
+```powershell
+cd .\cabal-mcp-runtime
+cargo run --release -- --help
+cargo run --release -- --strict-artifacts
+```
+
+3. Unified release gate (stress + IDE contract + schema):
+```powershell
+cd .\cabal-mcp-runtime
+powershell -ExecutionPolicy Bypass -File .\scripts\check-release-gates.ps1 -WithIntegration
+```
+
+4. Финальная готовность (snapshot-режим, без GitHub API):
+```powershell
+cd .\cabal-mcp-runtime
+$snapshot = ".\.cabal_runtime\branch_protection_snapshot.json"
+@{ required_status_checks = @{ contexts = @("stress-sla-gate","ide-contract-gate","ide-e2e-report-schema-gate","release-summary-schema-gate","release-gate") } } | ConvertTo-Json -Depth 4 | Set-Content -Encoding UTF8 $snapshot
+powershell -ExecutionPolicy Bypass -File .\scripts\check-final-readiness.ps1 -IdeE2EReportPath .\..\spec\contracts\ide_e2e_report.pass.json -ProtectionJsonPath $snapshot
+```
+
+5. Финальная готовность (GitHub-режим):
+```powershell
+cd .\cabal-mcp-runtime
+powershell -ExecutionPolicy Bypass -File .\scripts\check-final-readiness.ps1 -IdeE2EReportPath .\..\spec\docs\ide_e2e_report.json -RepoOwner "<owner>" -RepoName "<repo>" -Branch "main"
+```
 
 ## Режимы CONSULT: USER_TRACKING и YOLO
 Перед первым запуском GA-1 после окончательного утверждения концепта Пользователь выбирает режим маршрутизации CONSULT:
@@ -153,6 +264,17 @@ This repository contains a logical protocol (3.1) for building large projects an
 - agent/ — subagent roles and responsibilities.
 - scripts/ — utilities (checkpoint, phase tools, Edit Harness scripts).
 - ENG/ — (optional) English mirror of core docs.
+- cabal-mcp-runtime/ — Cabal runtime implementation (MCP control plane, policy/gate/audit/proxy).
+
+## Cabal-MCP Mode (Current)
+- For execution, use `cabal-mcp-runtime` through MCP (`stdio` transport).
+- Logical documents (`spec/docs/*`, `.memory/*`) remain formalization/audit artifacts and are not required as model-readable instructions in `MCP-only` flow.
+- Enable strict file-based gates only when needed via `cabal.set_gate_policy {"strict_artifacts": true}`.
+
+## Agent Runtime Status (GitHub)
+- All profiles in `agent/*.md` are aligned to `MCP-only`.
+- Each profile contains a mandatory section: `MCP-Only Контракт (Cabal-MCP, обязательно)`.
+- Logical-scheme files are treated as formalization/audit artifacts, not executable model instructions.
 
 ## Protocol Overview
 - C-0 — consolidated concept.
@@ -168,22 +290,82 @@ This repository contains a logical protocol (3.1) for building large projects an
 Coding is allowed only after GA-5.
 
 ## How to Use
-Short version: users do not manually build protocol maps, phases, lemma structures, or tracking journals. Agents handle that internally.
+Short version: non-technical users can work with Cabal without manually managing phases, logs, or internal rules.
 
-Minimal user flow:
-1. Describe the goal and task context.
-2. Specify constraints, prohibitions, and priorities.
-3. Answer agent clarifying questions.
-4. Approve selected options at key decision points.
+Simple flow:
+1. Connect Cabal MCP server in your IDE.
+2. Write your goal in plain language.
+3. Add constraints: what is forbidden, what is critical, what has priority.
+4. Choose CONSULT mode: `USER_TRACKING` or `YOLO`.
+5. Confirm key decisions (or delegate to Orchestrator in `YOLO`).
 
-Internal workflow handled by agents:
-1. Maintain Protocol 3.1 and the full phase/decomposition map.
-2. Run math proofing, `math-critique`, QA anti-simulation checks, and option synthesis.
-3. Keep working artifacts and records updated (`.memory/*`, `spec/docs/*`).
+What Cabal handles automatically:
+1. Phase protocol and gate checks.
+2. Routing requests to the right role.
+3. Audit trail and reproducible state.
 
-Integration:
-1. CLI IDEs (opencode, factory droid, claudecode, etc.): copy files from `agent/` into your IDE agent locations and configure models per the IDE docs. Then copy repository contents into your working area, excluding `agent/` if agents are stored separately.
-2. VS Code plugins (RooCode/KiloCode): agents are usually represented as `modes`. Replace each mode's internal rules with the matching file from `agent/`, and keep mode names identical to agent names.
+MCP context optimization:
+1. `tools/list` shows a small bootstrap set in lazy mode.
+2. Use `cabal.tool_search` to find tools.
+3. Use `cabal.get_tool_schema` to load full schema only when needed.
+4. Use `cabal.programmatic_call` for compact multi-step execution.
+
+## Quick Start (No Coding)
+1. Install an IDE/plugin that supports MCP (for example, RooCode).
+2. Add Cabal MCP server to IDE settings.
+3. Restart IDE and open a model chat.
+4. Describe your task in plain language:
+`Goal + constraints + what is forbidden + expected result`.
+5. Work through Cabal tools and avoid direct bypass commands.
+
+Example MCP config (Windows, `stdio`):
+```json
+{
+  "transport": "stdio",
+  "command": "C:\\cabal-mcp\\cabal-mcp-runtime-rooformat.exe",
+  "args": [],
+  "env": {
+    "CABAL_MCP_TOOL_NAME_FORMAT": "roo",
+    "CABAL_MCP_COMPAT_ALIAS_PROFILE": "none"
+  }
+}
+```
+
+## Run Examples (Cabal MCP Runtime)
+From repository root:
+
+1. Quick local smoke:
+```powershell
+cd .\cabal-mcp-runtime
+cargo test -q
+```
+
+2. Console help and pre-start gate flag:
+```powershell
+cd .\cabal-mcp-runtime
+cargo run --release -- --help
+cargo run --release -- --strict-artifacts
+```
+
+3. Unified release gate (stress + IDE contract + schema):
+```powershell
+cd .\cabal-mcp-runtime
+powershell -ExecutionPolicy Bypass -File .\scripts\check-release-gates.ps1 -WithIntegration
+```
+
+4. Final readiness (snapshot mode, no GitHub API):
+```powershell
+cd .\cabal-mcp-runtime
+$snapshot = ".\.cabal_runtime\branch_protection_snapshot.json"
+@{ required_status_checks = @{ contexts = @("stress-sla-gate","ide-contract-gate","ide-e2e-report-schema-gate","release-summary-schema-gate","release-gate") } } | ConvertTo-Json -Depth 4 | Set-Content -Encoding UTF8 $snapshot
+powershell -ExecutionPolicy Bypass -File .\scripts\check-final-readiness.ps1 -IdeE2EReportPath .\..\spec\contracts\ide_e2e_report.pass.json -ProtectionJsonPath $snapshot
+```
+
+5. Final readiness (GitHub mode):
+```powershell
+cd .\cabal-mcp-runtime
+powershell -ExecutionPolicy Bypass -File .\scripts\check-final-readiness.ps1 -IdeE2EReportPath .\..\spec\docs\ide_e2e_report.json -RepoOwner "<owner>" -RepoName "<repo>" -Branch "main"
+```
 
 ## CONSULT Modes: USER_TRACKING and YOLO
 Before the first GA-1 run (after the concept is finalized), the user selects a CONSULT routing mode:

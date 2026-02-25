@@ -220,6 +220,16 @@ pub fn classify_error(method: &str, tool_name: Option<&str>, err: &Error) -> Cla
         "max_age_sec must be > 0",
         "payload.text is too large",
         "limit must be > 0",
+        "query is too long",
+        "calls exceeds max_calls policy",
+        "programmatic_call recursion is forbidden",
+        "calls[].name is required",
+        "calls[].arguments must be an object",
+        "max_calls must be in [1, 256]",
+        "max_chars must be in [256, 200000]",
+        "preview_items must be in [1, 128]",
+        "lazy_threshold_pct must be in [1, 95]",
+        "programmatic_max_calls must be in [1, 256]",
     ]) {
         return ClassifiedError {
             rpc_code: -32602,

@@ -12,6 +12,14 @@ cargo build --release
 - `vscode.mcp.jsonc`
 - `jetbrains.mcp.jsonc`
 3. Замените `command` на абсолютный путь к бинарнику `cabal-mcp-runtime`.
+   Пример:
+```json
+{
+  "transport": "stdio",
+  "command": "C:\\\\path\\\\to\\\\Cabal-System\\\\cabal-mcp-runtime\\\\target\\\\release\\\\cabal-mcp-runtime.exe",
+  "args": []
+}
+```
 4. При необходимости задайте `CABAL_PROXY_SHELL_TIMEOUT_MS` через `env`.
 
 ## Важно

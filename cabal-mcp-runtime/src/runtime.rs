@@ -60,7 +60,7 @@ use crate::errors::validate_error_codes_doc_parity;
 use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -86,6 +86,61 @@ pub struct PolicyBundle {
     #[serde(default)]
     pub signature: Option<String>,
     pub forbidden_tokens: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskBudgetProfile {
+    pub max_steps: u64,
+    pub max_tool_calls: u64,
+    pub max_runtime_sec: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PatchGatePolicy {
+    #[serde(default = "default_patch_gate_require_review_on_unsafe")]
+    pub require_review_on_unsafe: bool,
+    #[serde(default = "default_patch_gate_require_review_on_build_scripts")]
+    pub require_review_on_build_scripts: bool,
+    #[serde(default = "default_patch_gate_deny_on_secrets")]
+    pub deny_on_secrets: bool,
+    #[serde(default = "default_patch_gate_max_auto_apply_files")]
+    pub max_auto_apply_files: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskClassification {
+    pub task_type: String,
+    pub risk: String,
+    pub confidence: f64,
+    pub keywords: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoleSwitchRequest {
+    pub target_role: String,
+    pub requested_by: String,
+    pub reason: String,
+    pub requested_at_unix: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResultCompactPolicy {
+    #[serde(default = "default_result_compact_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_result_compact_max_chars")]
+    pub max_chars: u64,
+    #[serde(default = "default_result_compact_preview_items")]
+    pub preview_items: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContextWindowPolicy {
+    #[serde(default = "default_context_lazy_tool_search")]
+    pub lazy_tool_search: bool,
+    #[serde(default = "default_context_lazy_threshold_pct")]
+    pub lazy_threshold_pct: u64,
+    #[serde(default = "default_context_programmatic_max_calls")]
+    pub programmatic_max_calls: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -117,6 +172,20 @@ pub struct RuntimeState {
     pub adaptive_exploration_min_samples: u64,
     #[serde(default = "default_consult_executor_telemetry")]
     pub consult_executor_telemetry: BTreeMap<String, ConsultExecutorTelemetry>,
+    #[serde(default = "default_task_budget_profiles")]
+    pub task_budget_profiles: BTreeMap<String, TaskBudgetProfile>,
+    #[serde(default = "default_patch_gate_policy")]
+    pub patch_gate_policy: PatchGatePolicy,
+    #[serde(default = "default_active_role_profile")]
+    pub active_role_profile: String,
+    #[serde(default = "default_role_tool_access_profiles")]
+    pub role_tool_access_profiles: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    pub pending_role_switch: Option<RoleSwitchRequest>,
+    #[serde(default = "default_result_compact_policy")]
+    pub result_compact_policy: ResultCompactPolicy,
+    #[serde(default = "default_context_window_policy")]
+    pub context_window_policy: ContextWindowPolicy,
     pub policy: PolicyBundle,
     pub policy_hash: u64,
     #[serde(default)]
@@ -239,6 +308,13 @@ impl CabalRuntime {
             adaptive_exploration_rate: default_adaptive_exploration_rate(),
             adaptive_exploration_min_samples: default_adaptive_exploration_min_samples(),
             consult_executor_telemetry: default_consult_executor_telemetry(),
+            task_budget_profiles: default_task_budget_profiles(),
+            patch_gate_policy: default_patch_gate_policy(),
+            active_role_profile: default_active_role_profile(),
+            role_tool_access_profiles: default_role_tool_access_profiles(),
+            pending_role_switch: None,
+            result_compact_policy: default_result_compact_policy(),
+            context_window_policy: default_context_window_policy(),
             policy,
             policy_hash,
             policy_revision: 1,
@@ -309,6 +385,13 @@ impl CabalRuntime {
             "adaptive_exploration_rate": self.state.adaptive_exploration_rate,
             "adaptive_exploration_min_samples": self.state.adaptive_exploration_min_samples,
             "consult_feedback_profiles_total": self.state.consult_executor_telemetry.len(),
+            "task_budget_profiles": self.state.task_budget_profiles,
+            "patch_gate_policy": self.state.patch_gate_policy,
+            "active_role_profile": self.state.active_role_profile,
+            "known_role_profiles_total": self.state.role_tool_access_profiles.len(),
+            "pending_role_switch": self.state.pending_role_switch,
+            "result_compact_policy": self.state.result_compact_policy,
+            "context_window_policy": self.state.context_window_policy,
             "policy_version": self.state.policy.version,
             "policy_revision": self.state.policy_revision,
             "cpu_policy": {
@@ -354,6 +437,338 @@ impl CabalRuntime {
             "events_total": self.state.events.len(),
             "evidence_total": self.state.evidence.len()
         })
+    }
+
+    pub fn get_role_profile(&self) -> Value {
+        let allowed = self.allowed_tools_for_active_role();
+        json!({
+            "active_role_profile": self.state.active_role_profile,
+            "allowed_tools_total": allowed.len(),
+            "allowed_tools": allowed,
+            "pending_role_switch": self.state.pending_role_switch,
+        })
+    }
+
+    pub fn list_role_profiles(&self) -> Value {
+        let mut profiles = BTreeMap::new();
+        for (role, tools) in &self.state.role_tool_access_profiles {
+            profiles.insert(
+                role.clone(),
+                json!({
+                    "tools_total": tools.len(),
+                    "tools": tools,
+                }),
+            );
+        }
+        json!({
+            "active_role_profile": self.state.active_role_profile,
+            "profiles": profiles
+        })
+    }
+
+    pub fn request_role_switch(
+        &mut self,
+        target_role: String,
+        requested_by: Option<String>,
+        reason: Option<String>,
+    ) -> Result<Value> {
+        let target = normalize_role_name(&target_role)?;
+        self.ensure_role_profile_exists(&target)?;
+        let actor = requested_by
+            .map(|x| x.trim().to_string())
+            .filter(|x| !x.is_empty())
+            .unwrap_or_else(|| self.state.active_role_profile.clone());
+        let why = reason
+            .map(|x| x.trim().to_string())
+            .filter(|x| !x.is_empty())
+            .unwrap_or_else(|| "role switch requested".to_string());
+        let requested_at = now_unix()?;
+        self.state.pending_role_switch = Some(RoleSwitchRequest {
+            target_role: target.clone(),
+            requested_by: actor.clone(),
+            reason: why.clone(),
+            requested_at_unix: requested_at,
+        });
+        self.append_audit(
+            "role.switch.requested",
+            json!({
+                "from_role": self.state.active_role_profile,
+                "to_role": target,
+                "requested_by": actor,
+                "reason": why,
+                "requested_at_unix": requested_at
+            }),
+        )?;
+        Ok(self.get_role_profile())
+    }
+
+    pub fn approve_role_switch(
+        &mut self,
+        approved: bool,
+        approved_by: Option<String>,
+        note: Option<String>,
+    ) -> Result<Value> {
+        let approver = approved_by
+            .map(|x| x.trim().to_ascii_lowercase())
+            .filter(|x| !x.is_empty())
+            .unwrap_or_else(|| self.state.active_role_profile.clone());
+        if self.state.active_role_profile != "orchestrator" && approver != "user" {
+            bail!("policy deny: only orchestrator or user can approve role switch");
+        }
+        let pending = self
+            .state
+            .pending_role_switch
+            .clone()
+            .ok_or_else(|| anyhow!("no pending role switch request"))?;
+        if !approved {
+            self.state.pending_role_switch = None;
+            self.append_audit(
+                "role.switch.rejected",
+                json!({
+                    "from_role": self.state.active_role_profile,
+                    "to_role": pending.target_role,
+                    "approved_by": approver,
+                    "note": note.unwrap_or_else(|| "rejected".to_string())
+                }),
+            )?;
+            return Ok(self.get_role_profile());
+        }
+        self.ensure_role_switch_guards()?;
+        self.apply_role_profile(
+            pending.target_role.clone(),
+            approver,
+            note.unwrap_or_else(|| "approved role switch".to_string()),
+        )?;
+        self.state.pending_role_switch = None;
+        Ok(self.get_role_profile())
+    }
+
+    pub fn set_role_profile(
+        &mut self,
+        target_role: String,
+        actor: Option<String>,
+        reason: Option<String>,
+    ) -> Result<Value> {
+        let target = normalize_role_name(&target_role)?;
+        self.ensure_role_profile_exists(&target)?;
+        let actor_normalized = actor
+            .map(|x| x.trim().to_ascii_lowercase())
+            .filter(|x| !x.is_empty())
+            .unwrap_or_else(|| self.state.active_role_profile.clone());
+        if self.state.active_role_profile != "orchestrator" && actor_normalized != "user" {
+            bail!("policy deny: role switch requires orchestrator or user actor");
+        }
+        self.ensure_role_switch_guards()?;
+        self.apply_role_profile(
+            target.clone(),
+            actor_normalized.clone(),
+            reason
+                .map(|x| x.trim().to_string())
+                .filter(|x| !x.is_empty())
+                .unwrap_or_else(|| "direct role switch".to_string()),
+        )?;
+        if self
+            .state
+            .pending_role_switch
+            .as_ref()
+            .map(|x| x.target_role.as_str())
+            == Some(target.as_str())
+        {
+            self.state.pending_role_switch = None;
+        }
+        Ok(self.get_role_profile())
+    }
+
+    pub fn get_result_compact_policy(&self) -> Value {
+        json!(self.state.result_compact_policy)
+    }
+
+    pub fn set_result_compact_policy(
+        &mut self,
+        enabled: Option<bool>,
+        max_chars: Option<u64>,
+        preview_items: Option<u64>,
+    ) -> Result<Value> {
+        if let Some(v) = enabled {
+            self.state.result_compact_policy.enabled = v;
+        }
+        if let Some(v) = max_chars {
+            if !(256..=200_000).contains(&v) {
+                bail!("max_chars must be in [256, 200000]");
+            }
+            self.state.result_compact_policy.max_chars = v;
+        }
+        if let Some(v) = preview_items {
+            if !(1..=128).contains(&v) {
+                bail!("preview_items must be in [1, 128]");
+            }
+            self.state.result_compact_policy.preview_items = v;
+        }
+        self.append_audit(
+            "policy.result_compact.updated",
+            json!(self.state.result_compact_policy),
+        )?;
+        Ok(self.get_result_compact_policy())
+    }
+
+    pub fn get_context_window_policy(&self) -> Value {
+        json!(self.state.context_window_policy)
+    }
+
+    pub fn set_context_window_policy(
+        &mut self,
+        lazy_tool_search: Option<bool>,
+        lazy_threshold_pct: Option<u64>,
+        programmatic_max_calls: Option<u64>,
+    ) -> Result<Value> {
+        if let Some(v) = lazy_tool_search {
+            self.state.context_window_policy.lazy_tool_search = v;
+        }
+        if let Some(v) = lazy_threshold_pct {
+            if !(1..=95).contains(&v) {
+                bail!("lazy_threshold_pct must be in [1, 95]");
+            }
+            self.state.context_window_policy.lazy_threshold_pct = v;
+        }
+        if let Some(v) = programmatic_max_calls {
+            if !(1..=256).contains(&v) {
+                bail!("programmatic_max_calls must be in [1, 256]");
+            }
+            self.state.context_window_policy.programmatic_max_calls = v;
+        }
+        self.append_audit(
+            "policy.context_window.updated",
+            json!(self.state.context_window_policy),
+        )?;
+        Ok(self.get_context_window_policy())
+    }
+
+    pub fn compact_result_value(
+        &self,
+        value: &Value,
+        max_chars_override: Option<u64>,
+    ) -> Result<Value> {
+        let policy = &self.state.result_compact_policy;
+        let max_chars_u64 = max_chars_override.unwrap_or(policy.max_chars);
+        if !(256..=200_000).contains(&max_chars_u64) {
+            bail!("max_chars must be in [256, 200000]");
+        }
+        let max_chars = max_chars_u64 as usize;
+        let original_text = serde_json::to_string_pretty(value)?;
+        let original_chars = original_text.chars().count();
+        if !policy.enabled || original_chars <= max_chars {
+            return Ok(json!({
+                "truncated": false,
+                "original_chars": original_chars,
+                "max_chars": max_chars_u64,
+                "text": original_text
+            }));
+        }
+
+        let preview_items = policy.preview_items as usize;
+        let summary = summarize_value(value, preview_items);
+        let summary_text = serde_json::to_string_pretty(&summary)?;
+        let text = if summary_text.chars().count() <= max_chars {
+            summary_text
+        } else {
+            truncate_chars_with_suffix(&summary_text, max_chars, "\n...<truncated>")
+        };
+        Ok(json!({
+            "truncated": true,
+            "original_chars": original_chars,
+            "max_chars": max_chars_u64,
+            "text": text,
+            "summary": summary
+        }))
+    }
+
+    pub fn allowed_tools_for_active_role(&self) -> Vec<String> {
+        resolve_allowed_tools_for_role(
+            &self.state.active_role_profile,
+            &self.state.role_tool_access_profiles,
+        )
+        .into_iter()
+        .collect()
+    }
+
+    pub fn ensure_tool_allowed_for_active_role(&self, tool_name: &str) -> Result<()> {
+        let allowed = resolve_allowed_tools_for_role(
+            &self.state.active_role_profile,
+            &self.state.role_tool_access_profiles,
+        );
+        if allowed.contains(tool_name) {
+            return Ok(());
+        }
+        bail!(
+            "policy deny: tool is not allowed for active role profile (role={}, tool={})",
+            self.state.active_role_profile,
+            tool_name
+        );
+    }
+
+    fn ensure_role_profile_exists(&self, role: &str) -> Result<()> {
+        if self.state.role_tool_access_profiles.contains_key(role) {
+            return Ok(());
+        }
+        bail!("unknown role profile: {role}");
+    }
+
+    fn ensure_role_switch_guards(&self) -> Result<()> {
+        let exit_report = self.build_gate_report("exit", &self.state.phase)?;
+        let entry_report = self.build_gate_report("entry", &self.state.phase)?;
+        if !exit_report.pass || !entry_report.pass {
+            bail!("policy deny: role switch blocked by gate check");
+        }
+        let mut required = cross_rules_required_evidence_ids();
+        if self.state.consult_require_cross_rules_ack {
+            for id in &self.state.consult_required_evidence_ids {
+                if !required.iter().any(|x| x == id) {
+                    required.push(id.clone());
+                }
+            }
+        }
+        let missing = missing_evidence_ids(&self.state.evidence, &required);
+        if !missing.is_empty() {
+            bail!(
+                "policy deny: role switch requires cross-rules evidence (missing={})",
+                missing.join(", ")
+            );
+        }
+        Ok(())
+    }
+
+    fn apply_role_profile(
+        &mut self,
+        target_role: String,
+        actor: String,
+        reason: String,
+    ) -> Result<()> {
+        let from = self.state.active_role_profile.clone();
+        if from == target_role {
+            self.append_audit(
+                "role.switch.applied",
+                json!({
+                    "from_role": from,
+                    "to_role": target_role,
+                    "actor": actor,
+                    "reason": reason,
+                    "changed": false
+                }),
+            )?;
+            return Ok(());
+        }
+        self.state.active_role_profile = target_role.clone();
+        self.append_audit(
+            "role.switch.applied",
+            json!({
+                "from_role": from,
+                "to_role": target_role,
+                "actor": actor,
+                "reason": reason,
+                "changed": true
+            }),
+        )?;
+        Ok(())
     }
 
     pub fn validate_cpu_policy(&self, cpu: &CpuProfile) -> Result<()> {
@@ -668,6 +1083,232 @@ impl CabalRuntime {
                 "feedback_profiles_total": self.state.consult_executor_telemetry.len()
             }
         })
+    }
+
+    pub fn classify_task(
+        &self,
+        question: &str,
+        explicit_task_type: Option<String>,
+    ) -> Result<Value> {
+        if question.trim().is_empty() {
+            bail!("question must not be empty");
+        }
+        let classification = classify_task_from_text(question, explicit_task_type.as_deref())?;
+        let budget =
+            resolve_budget_profile(&self.state.task_budget_profiles, &classification.risk)?;
+        Ok(json!({
+            "classification": classification,
+            "budget_profile": budget
+        }))
+    }
+
+    pub fn get_budget_policy(&self) -> Value {
+        json!({
+            "profiles": self.state.task_budget_profiles
+        })
+    }
+
+    pub fn set_budget_policy(
+        &mut self,
+        risk: String,
+        max_steps: Option<u64>,
+        max_tool_calls: Option<u64>,
+        max_runtime_sec: Option<u64>,
+    ) -> Result<Value> {
+        let risk = normalize_task_risk(Some(risk.as_str()))?;
+        let mut profile = resolve_budget_profile(&self.state.task_budget_profiles, &risk)?;
+        if let Some(v) = max_steps {
+            if v == 0 {
+                bail!("max_steps must be > 0");
+            }
+            profile.max_steps = v;
+        }
+        if let Some(v) = max_tool_calls {
+            if v == 0 {
+                bail!("max_tool_calls must be > 0");
+            }
+            profile.max_tool_calls = v;
+        }
+        if let Some(v) = max_runtime_sec {
+            if v == 0 {
+                bail!("max_runtime_sec must be > 0");
+            }
+            profile.max_runtime_sec = v;
+        }
+        self.state
+            .task_budget_profiles
+            .insert(risk.clone(), profile.clone());
+        self.append_audit(
+            "task.budget_policy_set",
+            json!({
+                "risk": risk,
+                "profile": profile
+            }),
+        )?;
+        Ok(self.get_budget_policy())
+    }
+
+    pub fn plan_task_execution(
+        &mut self,
+        question: &str,
+        explicit_task_type: Option<String>,
+        priority: Option<&str>,
+    ) -> Result<Value> {
+        if question.trim().is_empty() {
+            bail!("question must not be empty");
+        }
+        let classification = classify_task_from_text(question, explicit_task_type.as_deref())?;
+        let priority = core_normalize_consult_priority(priority.unwrap_or("normal"))?;
+        let base_budget =
+            resolve_budget_profile(&self.state.task_budget_profiles, &classification.risk)?;
+        let planned_budget = scale_budget_for_priority(&base_budget, &priority)?;
+        self.append_audit(
+            "task.planned",
+            json!({
+                "task_type": classification.task_type,
+                "risk": classification.risk,
+                "priority": priority,
+                "confidence": classification.confidence,
+                "keywords": classification.keywords,
+                "budget": planned_budget
+            }),
+        )?;
+        Ok(json!({
+            "classification": classification,
+            "priority": priority,
+            "budget": planned_budget
+        }))
+    }
+
+    pub fn get_patch_gate_policy(&self) -> Value {
+        json!(self.state.patch_gate_policy)
+    }
+
+    pub fn set_patch_gate_policy(
+        &mut self,
+        require_review_on_unsafe: Option<bool>,
+        require_review_on_build_scripts: Option<bool>,
+        deny_on_secrets: Option<bool>,
+        max_auto_apply_files: Option<u64>,
+    ) -> Result<Value> {
+        if let Some(v) = require_review_on_unsafe {
+            self.state.patch_gate_policy.require_review_on_unsafe = v;
+        }
+        if let Some(v) = require_review_on_build_scripts {
+            self.state.patch_gate_policy.require_review_on_build_scripts = v;
+        }
+        if let Some(v) = deny_on_secrets {
+            self.state.patch_gate_policy.deny_on_secrets = v;
+        }
+        if let Some(v) = max_auto_apply_files {
+            if v == 0 {
+                bail!("max_auto_apply_files must be > 0");
+            }
+            self.state.patch_gate_policy.max_auto_apply_files = v;
+        }
+        self.append_audit(
+            "patch_gate.policy_set",
+            json!({
+                "policy": self.state.patch_gate_policy
+            }),
+        )?;
+        Ok(self.get_patch_gate_policy())
+    }
+
+    pub fn evaluate_patch_gate(
+        &mut self,
+        files: Vec<String>,
+        task_risk: Option<&str>,
+        touches_unsafe: Option<bool>,
+        touches_build_scripts: Option<bool>,
+        touches_secrets: Option<bool>,
+        tests_passed: Option<bool>,
+    ) -> Result<Value> {
+        if files.is_empty() {
+            bail!("files must not be empty");
+        }
+        let mut normalized_files: Vec<String> = files
+            .into_iter()
+            .map(|x| x.trim().replace('\\', "/"))
+            .filter(|x| !x.is_empty())
+            .collect();
+        if normalized_files.is_empty() {
+            bail!("files must not be empty");
+        }
+        normalized_files.sort();
+        normalized_files.dedup();
+
+        let inferred_unsafe = detect_unsafe_files(&normalized_files);
+        let inferred_build_scripts = detect_build_script_files(&normalized_files);
+        let inferred_secrets = detect_secret_files(&normalized_files);
+        let touches_unsafe = touches_unsafe.unwrap_or(inferred_unsafe);
+        let touches_build_scripts = touches_build_scripts.unwrap_or(inferred_build_scripts);
+        let touches_secrets = touches_secrets.unwrap_or(inferred_secrets);
+        let task_risk = normalize_task_risk(task_risk)?;
+
+        let mut mode = "auto_apply";
+        let mut reasons: Vec<String> = Vec::new();
+        if self.state.patch_gate_policy.deny_on_secrets && touches_secrets {
+            mode = "deny";
+            reasons.push("secrets_change_blocked".to_string());
+        } else {
+            if touches_unsafe && self.state.patch_gate_policy.require_review_on_unsafe {
+                mode = "require_confirmation";
+                reasons.push("unsafe_changes_require_review".to_string());
+            }
+            if touches_build_scripts && self.state.patch_gate_policy.require_review_on_build_scripts
+            {
+                mode = "require_confirmation";
+                reasons.push("build_or_pipeline_changes_require_review".to_string());
+            }
+            if normalized_files.len() as u64 > self.state.patch_gate_policy.max_auto_apply_files {
+                if mode == "auto_apply" {
+                    mode = "suggest_only";
+                }
+                reasons.push("change_set_too_large".to_string());
+            }
+            match task_risk.as_str() {
+                "critical" => {
+                    if mode == "auto_apply" {
+                        mode = "require_confirmation";
+                    }
+                    reasons.push("critical_task_risk".to_string());
+                }
+                "high" => {
+                    if mode == "auto_apply" {
+                        mode = "suggest_only";
+                    }
+                    reasons.push("high_task_risk".to_string());
+                }
+                _ => {}
+            }
+            if matches!(tests_passed, Some(false)) {
+                if mode == "auto_apply" {
+                    mode = "suggest_only";
+                }
+                reasons.push("tests_not_passed".to_string());
+            }
+        }
+
+        let allow = mode != "deny";
+        let requires_confirmation = mode == "require_confirmation";
+        let out = json!({
+            "allow": allow,
+            "mode": mode,
+            "requires_confirmation": requires_confirmation,
+            "task_risk": task_risk,
+            "tests_passed": tests_passed,
+            "changed_files_total": normalized_files.len(),
+            "flags": {
+                "touches_unsafe": touches_unsafe,
+                "touches_build_scripts": touches_build_scripts,
+                "touches_secrets": touches_secrets
+            },
+            "reasons": reasons,
+            "policy": self.state.patch_gate_policy
+        });
+        self.append_audit("patch_gate.evaluated", out.clone())?;
+        Ok(out)
     }
 
     pub fn get_consult_guard_policy(&self) -> Value {
@@ -1302,7 +1943,8 @@ impl CabalRuntime {
     }
 
     pub fn get_proxy_log(&self, limit: Option<usize>) -> Result<Value> {
-        let n = normalize_limit(limit, 50, PROXY_LOG_RESULT_MAX_LIMIT)?.min(self.state.proxy_log.len());
+        let n =
+            normalize_limit(limit, 50, PROXY_LOG_RESULT_MAX_LIMIT)?.min(self.state.proxy_log.len());
         let start = self.state.proxy_log.len().saturating_sub(n);
         let slice = &self.state.proxy_log[start..];
         Ok(json!({
@@ -1606,7 +2248,10 @@ impl CabalRuntime {
                             );
                         }
                     }
-                    let pass = verify.get("pass").and_then(|x| x.as_bool()).unwrap_or(false);
+                    let pass = verify
+                        .get("pass")
+                        .and_then(|x| x.as_bool())
+                        .unwrap_or(false);
                     if pass {
                         passed += 1;
                     } else {
@@ -1764,6 +2409,10 @@ impl CabalRuntime {
         }
         let consult_type = consult_type.unwrap_or("general").to_ascii_lowercase();
         let priority = core_normalize_consult_priority(priority.unwrap_or("normal"))?;
+        let task_profile = classify_task_from_text(question, Some(consult_type.as_str()))?;
+        let task_budget_base =
+            resolve_budget_profile(&self.state.task_budget_profiles, &task_profile.risk)?;
+        let task_budget = scale_budget_for_priority(&task_budget_base, &priority)?;
         self.ensure_consult_cross_rules_ack(&consult_type, &priority, request_id)?;
         let timeout_sec =
             core_resolve_consult_timeout(priority.as_str(), &self.state.consult_priority_timeouts);
@@ -1856,11 +2505,14 @@ impl CabalRuntime {
         ) {
             bail!("resolved executor is not allowed for consult_type={consult_type}");
         }
-        let escalation_required = priority == "critical" || role_mismatch;
+        let escalation_required =
+            priority == "critical" || role_mismatch || task_profile.risk == "critical";
         let escalation_reason = if role_mismatch {
             "preferred_role_not_allowed"
         } else if priority == "critical" {
             "critical_priority"
+        } else if task_profile.risk == "critical" {
+            "critical_task_risk"
         } else {
             "none"
         };
@@ -1875,6 +2527,13 @@ impl CabalRuntime {
                 "ide_client_name": self.state.active_ide_client_name,
                 "consult_type": consult_type,
                 "priority": priority,
+                "task_profile": {
+                    "task_type": task_profile.task_type,
+                    "risk": task_profile.risk,
+                    "confidence": task_profile.confidence,
+                    "keywords": task_profile.keywords,
+                    "budget": task_budget
+                },
                 "timeout_sec": timeout_sec,
                 "routing_decision": {
                     "strategy": routing_strategy,
@@ -1904,6 +2563,13 @@ impl CabalRuntime {
                     "ide_client_name": self.state.active_ide_client_name,
                     "consult_type": consult_type,
                     "priority": priority,
+                    "task_profile": {
+                        "task_type": task_profile.task_type,
+                        "risk": task_profile.risk,
+                        "confidence": task_profile.confidence,
+                        "keywords": task_profile.keywords,
+                        "budget": task_budget
+                    },
                     "timeout_sec": timeout_sec,
                     "routing_decision": {
                         "strategy": routing_strategy,
@@ -1939,6 +2605,7 @@ impl CabalRuntime {
                 "route": out["route"],
                 "actor": out["actor"],
                 "policy_revision": out["policy_revision"],
+                "task_profile": out["task_profile"],
                 "ide_profile": out["ide_profile"],
                 "ide_client_name": out["ide_client_name"],
                 "dispatch": out.get("dispatch"),
@@ -2184,6 +2851,270 @@ impl CabalRuntime {
     }
 }
 
+fn classify_task_from_text(
+    question: &str,
+    explicit_task_type: Option<&str>,
+) -> Result<TaskClassification> {
+    let mut keywords = Vec::new();
+    let text = question.trim().to_ascii_lowercase();
+    let explicit = explicit_task_type
+        .map(|x| normalize_task_type(x))
+        .transpose()?;
+    let task_type = if let Some(v) = explicit {
+        v
+    } else if contains_any(
+        &text,
+        &[
+            "debug",
+            "bug",
+            "fix",
+            "trace",
+            "crash",
+            "исправ",
+            "ошиб",
+            "дебаг",
+            "паден",
+        ],
+    ) {
+        keywords.push("debug".to_string());
+        "debug".to_string()
+    } else if contains_any(
+        &text,
+        &[
+            "refactor",
+            "cleanup",
+            "rename",
+            "restructure",
+            "рефактор",
+            "чистк",
+        ],
+    ) {
+        keywords.push("refactor".to_string());
+        "refactor".to_string()
+    } else if contains_any(
+        &text,
+        &[
+            "optimiz",
+            "performance",
+            "latency",
+            "throughput",
+            "simd",
+            "avx",
+            "fma",
+            "ускор",
+            "оптим",
+        ],
+    ) {
+        keywords.push("optimization".to_string());
+        "optimization".to_string()
+    } else if contains_any(
+        &text,
+        &["test", "qa", "verify", "validation", "провер", "тест"],
+    ) {
+        keywords.push("testing".to_string());
+        "testing".to_string()
+    } else if contains_any(
+        &text,
+        &["docs", "readme", "document", "spec", "докум", "описан"],
+    ) {
+        keywords.push("docs".to_string());
+        "docs".to_string()
+    } else if contains_any(
+        &text,
+        &[
+            "security",
+            "secret",
+            "credential",
+            "token",
+            "vulnerab",
+            "уязв",
+            "секрет",
+        ],
+    ) {
+        keywords.push("security".to_string());
+        "security".to_string()
+    } else {
+        "codegen".to_string()
+    };
+
+    let mut risk = "medium".to_string();
+    if task_type == "docs" {
+        risk = "low".to_string();
+    }
+    if contains_any(
+        &text,
+        &[
+            "unsafe",
+            "nightly",
+            "kernel",
+            "branch protection",
+            "release gate",
+            "migration",
+            "mcp runtime",
+            "prod",
+            "прод",
+            "релиз",
+            "миграц",
+            "ключ",
+            "secret",
+            "credential",
+            "token",
+        ],
+    ) {
+        risk = "high".to_string();
+        keywords.push("high_risk_signal".to_string());
+    }
+    if contains_any(
+        &text,
+        &[
+            "deploy",
+            "production",
+            "rollback",
+            "critical",
+            "incident",
+            "авар",
+            "инцидент",
+        ],
+    ) {
+        risk = "critical".to_string();
+        keywords.push("critical_signal".to_string());
+    }
+
+    keywords.sort();
+    keywords.dedup();
+    let confidence = if explicit_task_type.is_some() {
+        0.95
+    } else {
+        let score = 0.5 + (keywords.len() as f64 * 0.12);
+        score.clamp(0.5, 0.98)
+    };
+    Ok(TaskClassification {
+        task_type,
+        risk,
+        confidence,
+        keywords,
+    })
+}
+
+fn contains_any(haystack: &str, needles: &[&str]) -> bool {
+    needles.iter().any(|n| haystack.contains(n))
+}
+
+fn normalize_task_type(value: &str) -> Result<String> {
+    let normalized = value.trim().to_ascii_lowercase();
+    if normalized.is_empty() {
+        bail!("task_type must not be empty");
+    }
+    let mapped = match normalized.as_str() {
+        "general" => "codegen",
+        "code" => "codegen",
+        "performance" => "optimization",
+        "math" => "analysis",
+        "integration" => "analysis",
+        "architecture" => "analysis",
+        "consult" => "analysis",
+        "analysis" => "analysis",
+        "debug" => "debug",
+        "refactor" => "refactor",
+        "testing" => "testing",
+        "docs" => "docs",
+        "security" => "security",
+        "security_review" => "security",
+        "codegen" => "codegen",
+        "optimization" => "optimization",
+        _ => "analysis",
+    };
+    Ok(mapped.to_string())
+}
+
+fn normalize_task_risk(value: Option<&str>) -> Result<String> {
+    let normalized = value.unwrap_or("medium").trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "low" | "medium" | "high" | "critical" => Ok(normalized),
+        _ => bail!("unsupported risk level: {normalized}"),
+    }
+}
+
+fn resolve_budget_profile(
+    profiles: &BTreeMap<String, TaskBudgetProfile>,
+    risk: &str,
+) -> Result<TaskBudgetProfile> {
+    if let Some(profile) = profiles.get(risk) {
+        validate_budget_profile(profile)?;
+        return Ok(profile.clone());
+    }
+    let defaults = default_task_budget_profiles();
+    let profile = defaults
+        .get(risk)
+        .cloned()
+        .ok_or_else(|| anyhow!("missing budget profile for risk={risk}"))?;
+    validate_budget_profile(&profile)?;
+    Ok(profile)
+}
+
+fn validate_budget_profile(profile: &TaskBudgetProfile) -> Result<()> {
+    if profile.max_steps == 0 {
+        bail!("budget max_steps must be > 0");
+    }
+    if profile.max_tool_calls == 0 {
+        bail!("budget max_tool_calls must be > 0");
+    }
+    if profile.max_runtime_sec == 0 {
+        bail!("budget max_runtime_sec must be > 0");
+    }
+    Ok(())
+}
+
+fn scale_budget_for_priority(
+    profile: &TaskBudgetProfile,
+    priority: &str,
+) -> Result<TaskBudgetProfile> {
+    validate_budget_profile(profile)?;
+    let multiplier = match priority {
+        "low" => 0.8,
+        "normal" => 1.0,
+        "high" => 1.2,
+        "critical" => 1.4,
+        _ => bail!("unsupported priority: {priority}"),
+    };
+    Ok(TaskBudgetProfile {
+        max_steps: ((profile.max_steps as f64) * multiplier).ceil() as u64,
+        max_tool_calls: ((profile.max_tool_calls as f64) * multiplier).ceil() as u64,
+        max_runtime_sec: ((profile.max_runtime_sec as f64) * multiplier).ceil() as u64,
+    })
+}
+
+fn detect_unsafe_files(files: &[String]) -> bool {
+    files.iter().any(|path| {
+        let p = path.to_ascii_lowercase();
+        p.ends_with(".rs") && (p.contains("unsafe") || p.contains("simd") || p.contains("intrin"))
+    })
+}
+
+fn detect_build_script_files(files: &[String]) -> bool {
+    files.iter().any(|path| {
+        let p = path.to_ascii_lowercase();
+        p.ends_with("cargo.toml")
+            || p.ends_with("build.rs")
+            || p.starts_with(".github/workflows/")
+            || p.contains("/workflows/")
+            || p.ends_with("dockerfile")
+            || p.contains("/deploy/")
+    })
+}
+
+fn detect_secret_files(files: &[String]) -> bool {
+    files.iter().any(|path| {
+        let p = path.to_ascii_lowercase();
+        p.contains(".env")
+            || p.contains("secret")
+            || p.contains("credential")
+            || p.contains("token")
+            || p.contains("id_rsa")
+            || p.contains("private_key")
+    })
+}
+
 fn default_proxy_deny_by_default() -> bool {
     true
 }
@@ -2248,6 +3179,108 @@ fn default_consult_executor_telemetry() -> BTreeMap<String, ConsultExecutorTelem
     BTreeMap::new()
 }
 
+fn default_task_budget_profiles() -> BTreeMap<String, TaskBudgetProfile> {
+    BTreeMap::from([
+        (
+            "low".to_string(),
+            TaskBudgetProfile {
+                max_steps: 4,
+                max_tool_calls: 16,
+                max_runtime_sec: 300,
+            },
+        ),
+        (
+            "medium".to_string(),
+            TaskBudgetProfile {
+                max_steps: 8,
+                max_tool_calls: 32,
+                max_runtime_sec: 900,
+            },
+        ),
+        (
+            "high".to_string(),
+            TaskBudgetProfile {
+                max_steps: 12,
+                max_tool_calls: 64,
+                max_runtime_sec: 1800,
+            },
+        ),
+        (
+            "critical".to_string(),
+            TaskBudgetProfile {
+                max_steps: 16,
+                max_tool_calls: 96,
+                max_runtime_sec: 3600,
+            },
+        ),
+    ])
+}
+
+fn default_patch_gate_policy() -> PatchGatePolicy {
+    PatchGatePolicy {
+        require_review_on_unsafe: default_patch_gate_require_review_on_unsafe(),
+        require_review_on_build_scripts: default_patch_gate_require_review_on_build_scripts(),
+        deny_on_secrets: default_patch_gate_deny_on_secrets(),
+        max_auto_apply_files: default_patch_gate_max_auto_apply_files(),
+    }
+}
+
+fn default_patch_gate_require_review_on_unsafe() -> bool {
+    true
+}
+
+fn default_patch_gate_require_review_on_build_scripts() -> bool {
+    true
+}
+
+fn default_patch_gate_deny_on_secrets() -> bool {
+    true
+}
+
+fn default_patch_gate_max_auto_apply_files() -> u64 {
+    7
+}
+
+fn default_result_compact_enabled() -> bool {
+    true
+}
+
+fn default_result_compact_max_chars() -> u64 {
+    4000
+}
+
+fn default_result_compact_preview_items() -> u64 {
+    8
+}
+
+fn default_result_compact_policy() -> ResultCompactPolicy {
+    ResultCompactPolicy {
+        enabled: default_result_compact_enabled(),
+        max_chars: default_result_compact_max_chars(),
+        preview_items: default_result_compact_preview_items(),
+    }
+}
+
+fn default_context_lazy_tool_search() -> bool {
+    true
+}
+
+fn default_context_lazy_threshold_pct() -> u64 {
+    10
+}
+
+fn default_context_programmatic_max_calls() -> u64 {
+    16
+}
+
+fn default_context_window_policy() -> ContextWindowPolicy {
+    ContextWindowPolicy {
+        lazy_tool_search: default_context_lazy_tool_search(),
+        lazy_threshold_pct: default_context_lazy_threshold_pct(),
+        programmatic_max_calls: default_context_programmatic_max_calls(),
+    }
+}
+
 fn default_consult_routing_map() -> BTreeMap<String, String> {
     core_default_consult_routing_map()
 }
@@ -2266,6 +3299,262 @@ fn default_consult_escalation_targets() -> BTreeMap<String, String> {
 
 fn default_consult_allowed_roles() -> BTreeMap<String, Vec<String>> {
     core_default_consult_allowed_roles()
+}
+
+fn default_active_role_profile() -> String {
+    "orchestrator".to_string()
+}
+
+fn role_tools_with_base(extra: &[&str]) -> Vec<String> {
+    let mut set = BTreeSet::new();
+    for tool in [
+        "cabal.get_state",
+        "cabal.tool_search",
+        "cabal.get_tool_schema",
+        "cabal.programmatic_call",
+        "cabal.result_compact",
+        "cabal.get_result_compact_policy",
+        "cabal.get_context_window_policy",
+        "cabal.get_gate_policy",
+        "cabal.get_cross_rules_status",
+        "cabal.ack_cross_rules",
+        "cabal.gate_check",
+        "cabal.transition_phase_strict",
+        "cabal.route_consult",
+        "cabal.register_evidence",
+        "cabal.record_event",
+        "cabal.get_role_profile",
+        "cabal.list_role_profiles",
+        "cabal.request_role_switch",
+    ] {
+        set.insert(tool.to_string());
+    }
+    for tool in extra {
+        set.insert((*tool).to_string());
+    }
+    set.into_iter().collect()
+}
+
+fn default_role_tool_access_profiles() -> BTreeMap<String, Vec<String>> {
+    let mut profiles = BTreeMap::new();
+
+    profiles.insert(
+        "orchestrator".to_string(),
+        role_tools_with_base(&[
+            "cabal.get_capabilities",
+            "cabal.get_error_codes",
+            "cabal.validate_error_codes_parity",
+            "cabal.get_cpu_policy",
+            "cabal.set_cpu_policy",
+            "cabal.set_gate_policy",
+            "cabal.get_ide_profile_policy",
+            "cabal.set_ide_profile_policy",
+            "cabal.get_audit_rotation_policy",
+            "cabal.set_audit_rotation_policy",
+            "cabal.set_result_compact_policy",
+            "cabal.set_context_window_policy",
+            "cabal.get_consult_routing",
+            "cabal.get_consult_guard_policy",
+            "cabal.get_adaptive_router",
+            "cabal.classify_task",
+            "cabal.get_budget_policy",
+            "cabal.set_budget_policy",
+            "cabal.plan_task_execution",
+            "cabal.get_patch_gate_policy",
+            "cabal.set_patch_gate_policy",
+            "cabal.evaluate_patch_gate",
+            "cabal.set_consult_mode",
+            "cabal.set_consult_guard_policy",
+            "cabal.set_consult_routing_rule",
+            "cabal.set_consult_priority_timeout",
+            "cabal.set_consult_retry_limit",
+            "cabal.set_consult_escalation_target",
+            "cabal.set_consult_allowed_roles",
+            "cabal.set_adaptive_router",
+            "cabal.set_adaptive_exploration_policy",
+            "cabal.record_consult_feedback",
+            "cabal.apply_policy_bundle",
+            "cabal.set_policy_security",
+            "cabal.list_policy_signing_keys",
+            "cabal.upsert_policy_signing_key",
+            "cabal.set_active_policy_signing_key",
+            "cabal.revoke_policy_signing_key",
+            "cabal.guard_action",
+            "cabal.get_proxy_operation_policy",
+            "cabal.set_proxy_operation_policy",
+            "cabal.set_proxy_policy",
+            "cabal.get_proxy_log",
+            "cabal.get_audit_log",
+            "cabal.query_audit_log",
+            "cabal.export_audit_log",
+            "cabal.replay_audit_state",
+            "cabal.rotate_audit_log",
+            "cabal.verify_audit_archive",
+            "cabal.prune_audit_archives",
+            "cabal.audit_health_check",
+            "cabal.proxy_request",
+            "cabal.proxy_execute",
+            "cabal.transition_phase",
+            "cabal.approve_role_switch",
+            "cabal.set_role_profile",
+        ]),
+    );
+    profiles.insert(
+        "global_architect".to_string(),
+        role_tools_with_base(&[
+            "cabal.classify_task",
+            "cabal.get_budget_policy",
+            "cabal.plan_task_execution",
+            "cabal.evaluate_patch_gate",
+        ]),
+    );
+    profiles.insert(
+        "architect".to_string(),
+        role_tools_with_base(&[
+            "cabal.classify_task",
+            "cabal.get_budget_policy",
+            "cabal.plan_task_execution",
+            "cabal.evaluate_patch_gate",
+        ]),
+    );
+    profiles.insert(
+        "conceptualizer".to_string(),
+        role_tools_with_base(&[
+            "cabal.classify_task",
+            "cabal.get_budget_policy",
+            "cabal.get_patch_gate_policy",
+        ]),
+    );
+    profiles.insert(
+        "mathematician".to_string(),
+        role_tools_with_base(&[
+            "cabal.classify_task",
+            "cabal.get_budget_policy",
+            "cabal.get_patch_gate_policy",
+        ]),
+    );
+    profiles.insert(
+        "integrator_runtime".to_string(),
+        role_tools_with_base(&[
+            "cabal.classify_task",
+            "cabal.plan_task_execution",
+            "cabal.get_proxy_operation_policy",
+            "cabal.proxy_request",
+            "cabal.proxy_execute",
+        ]),
+    );
+    profiles.insert(
+        "rust_engineer".to_string(),
+        role_tools_with_base(&[
+            "cabal.get_cpu_policy",
+            "cabal.classify_task",
+            "cabal.plan_task_execution",
+            "cabal.evaluate_patch_gate",
+            "cabal.proxy_execute",
+        ]),
+    );
+    profiles.insert(
+        "simd_specialist".to_string(),
+        role_tools_with_base(&[
+            "cabal.get_cpu_policy",
+            "cabal.classify_task",
+            "cabal.plan_task_execution",
+            "cabal.evaluate_patch_gate",
+            "cabal.proxy_execute",
+        ]),
+    );
+    profiles.insert(
+        "debuger".to_string(),
+        role_tools_with_base(&[
+            "cabal.classify_task",
+            "cabal.plan_task_execution",
+            "cabal.get_proxy_log",
+            "cabal.query_audit_log",
+        ]),
+    );
+    profiles.insert(
+        "fixer".to_string(),
+        role_tools_with_base(&[
+            "cabal.classify_task",
+            "cabal.plan_task_execution",
+            "cabal.evaluate_patch_gate",
+            "cabal.proxy_execute",
+        ]),
+    );
+    profiles.insert(
+        "qa_agent".to_string(),
+        role_tools_with_base(&[
+            "cabal.query_audit_log",
+            "cabal.export_audit_log",
+            "cabal.replay_audit_state",
+            "cabal.audit_health_check",
+            "cabal.evaluate_patch_gate",
+        ]),
+    );
+    profiles.insert(
+        "tester".to_string(),
+        role_tools_with_base(&[
+            "cabal.query_audit_log",
+            "cabal.export_audit_log",
+            "cabal.replay_audit_state",
+            "cabal.audit_health_check",
+            "cabal.evaluate_patch_gate",
+        ]),
+    );
+
+    profiles
+}
+
+fn normalize_role_name(raw: &str) -> Result<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        bail!("role is required");
+    }
+
+    let mut out = String::with_capacity(trimmed.len());
+    let mut prev_underscore = false;
+    for ch in trimmed.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+            prev_underscore = false;
+            continue;
+        }
+        if matches!(ch, '_' | '-' | ' ' | '/' | '.') {
+            if !out.is_empty() && !prev_underscore {
+                out.push('_');
+                prev_underscore = true;
+            }
+            continue;
+        }
+    }
+    while out.ends_with('_') {
+        out.pop();
+    }
+    if out.is_empty() {
+        bail!("role is required");
+    }
+    Ok(out)
+}
+
+fn resolve_allowed_tools_for_role(
+    role: &str,
+    profiles: &BTreeMap<String, Vec<String>>,
+) -> BTreeSet<String> {
+    let normalized = normalize_role_name(role).unwrap_or_else(|_| default_active_role_profile());
+    let fallback = default_active_role_profile();
+    let tools = profiles
+        .get(normalized.as_str())
+        .or_else(|| profiles.get(fallback.as_str()));
+    let mut allowed = BTreeSet::new();
+    if let Some(items) = tools {
+        for tool in items {
+            let normalized_tool = tool.trim();
+            if !normalized_tool.is_empty() {
+                allowed.insert(normalized_tool.to_string());
+            }
+        }
+    }
+    allowed
 }
 
 fn default_proxy_allow() -> BTreeMap<String, Vec<String>> {
@@ -2442,6 +3731,63 @@ fn now_unix() -> Result<u64> {
         .as_secs())
 }
 
+fn truncate_chars_with_suffix(input: &str, max_chars: usize, suffix: &str) -> String {
+    if input.chars().count() <= max_chars {
+        return input.to_string();
+    }
+    let suffix_chars = suffix.chars().count();
+    if max_chars <= suffix_chars {
+        return suffix.chars().take(max_chars).collect();
+    }
+    let keep = max_chars - suffix_chars;
+    let mut out: String = input.chars().take(keep).collect();
+    out.push_str(suffix);
+    out
+}
+
+fn summarize_value(value: &Value, preview_items: usize) -> Value {
+    match value {
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {
+            json!({"type": "scalar", "value": value})
+        }
+        Value::Array(items) => {
+            let preview: Vec<Value> = items
+                .iter()
+                .take(preview_items)
+                .map(|v| summarize_value(v, preview_items.saturating_div(2).max(1)))
+                .collect();
+            json!({
+                "type": "array",
+                "len": items.len(),
+                "preview_items": preview
+            })
+        }
+        Value::Object(map) => {
+            let mut keys: Vec<&str> = map.keys().map(|k| k.as_str()).collect();
+            keys.sort_unstable();
+            let preview_keys: Vec<&str> = keys.iter().take(preview_items).copied().collect();
+            let mut preview = serde_json::Map::new();
+            for key in preview_keys {
+                if let Some(v) = map.get(key) {
+                    preview.insert(
+                        key.to_string(),
+                        summarize_value(v, preview_items.saturating_div(2).max(1)),
+                    );
+                }
+            }
+            Value::Object(serde_json::Map::from_iter([
+                ("type".to_string(), Value::String("object".to_string())),
+                ("keys_total".to_string(), json!(keys.len())),
+                (
+                    "keys_preview".to_string(),
+                    json!(keys.iter().take(preview_items).collect::<Vec<_>>()),
+                ),
+                ("preview".to_string(), Value::Object(preview)),
+            ]))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2466,6 +3812,13 @@ mod tests {
             adaptive_exploration_rate: default_adaptive_exploration_rate(),
             adaptive_exploration_min_samples: default_adaptive_exploration_min_samples(),
             consult_executor_telemetry: default_consult_executor_telemetry(),
+            task_budget_profiles: default_task_budget_profiles(),
+            patch_gate_policy: default_patch_gate_policy(),
+            active_role_profile: default_active_role_profile(),
+            role_tool_access_profiles: default_role_tool_access_profiles(),
+            pending_role_switch: None,
+            result_compact_policy: default_result_compact_policy(),
+            context_window_policy: default_context_window_policy(),
             policy: PolicyBundle {
                 version: "test".to_string(),
                 revision: 1,
@@ -2723,16 +4076,8 @@ mod tests {
             .expect("ack cross rules");
         assert_eq!(out["entry_gate_all_present"].as_bool(), Some(true));
         assert_eq!(out["consult_guard"]["enabled"].as_bool(), Some(true));
-        assert!(
-            rt.state
-                .evidence
-                .contains_key("cross_rules_agent_ack")
-        );
-        assert!(
-            rt.state
-                .evidence
-                .contains_key("cross_rules_subagent_ack")
-        );
+        assert!(rt.state.evidence.contains_key("cross_rules_agent_ack"));
+        assert!(rt.state.evidence.contains_key("cross_rules_subagent_ack"));
 
         let err = rt
             .ack_cross_rules(" ".to_string(), "x".to_string(), None)
@@ -2852,9 +4197,7 @@ mod tests {
     #[test]
     fn audit_health_check_rejects_zero_verify_last() {
         let rt = test_runtime();
-        let err = rt
-            .audit_health_check(None, Some(0))
-            .expect_err("must fail");
+        let err = rt.audit_health_check(None, Some(0)).expect_err("must fail");
         assert!(err.to_string().contains("verify_last must be > 0"));
     }
 
@@ -2883,7 +4226,10 @@ mod tests {
         let err = rt
             .set_adaptive_exploration_policy(Some(1.1), None)
             .expect_err("rate > 1 must fail");
-        assert!(err.to_string().contains("exploration_rate must be in [0,1]"));
+        assert!(
+            err.to_string()
+                .contains("exploration_rate must be in [0,1]")
+        );
 
         let err = rt
             .set_adaptive_exploration_policy(None, Some(0))
@@ -2892,6 +4238,93 @@ mod tests {
             err.to_string()
                 .contains("exploration_min_samples must be > 0")
         );
+    }
+
+    #[test]
+    fn classify_task_detects_docs_low_risk() {
+        let rt = test_runtime();
+        let out = rt
+            .classify_task("Обновить README и документацию интеграции", None)
+            .expect("classify");
+        assert_eq!(out["classification"]["task_type"].as_str(), Some("docs"));
+        assert_eq!(out["classification"]["risk"].as_str(), Some("low"));
+        assert_eq!(
+            out["budget_profile"]["max_steps"].as_u64(),
+            Some(default_task_budget_profiles()["low"].max_steps)
+        );
+    }
+
+    #[test]
+    fn plan_task_execution_scales_budget_by_priority() {
+        let mut rt = test_runtime();
+        let out = rt
+            .plan_task_execution(
+                "Need production deploy and release gate verification",
+                None,
+                Some("critical"),
+            )
+            .expect("plan");
+        assert_eq!(out["classification"]["risk"].as_str(), Some("critical"));
+        assert_eq!(out["priority"].as_str(), Some("critical"));
+        let base = default_task_budget_profiles()
+            .get("critical")
+            .expect("critical profile")
+            .max_steps;
+        assert!(out["budget"]["max_steps"].as_u64().expect("max_steps") >= base);
+    }
+
+    #[test]
+    fn set_budget_policy_updates_profile() {
+        let mut rt = test_runtime();
+        let out = rt
+            .set_budget_policy("high".to_string(), Some(21), Some(101), Some(7200))
+            .expect("set budget");
+        assert_eq!(out["profiles"]["high"]["max_steps"].as_u64(), Some(21));
+        assert_eq!(
+            out["profiles"]["high"]["max_tool_calls"].as_u64(),
+            Some(101)
+        );
+        assert_eq!(
+            out["profiles"]["high"]["max_runtime_sec"].as_u64(),
+            Some(7200)
+        );
+    }
+
+    #[test]
+    fn evaluate_patch_gate_blocks_secret_changes() {
+        let mut rt = test_runtime();
+        let out = rt
+            .evaluate_patch_gate(
+                vec![".env.production".to_string(), "src/main.rs".to_string()],
+                Some("medium"),
+                None,
+                None,
+                None,
+                Some(true),
+            )
+            .expect("evaluate");
+        assert_eq!(out["allow"], Value::Bool(false));
+        assert_eq!(out["mode"].as_str(), Some("deny"));
+        assert_eq!(out["flags"]["touches_secrets"].as_bool(), Some(true));
+    }
+
+    #[test]
+    fn evaluate_patch_gate_requires_confirmation_for_unsafe() {
+        let mut rt = test_runtime();
+        let out = rt
+            .evaluate_patch_gate(
+                vec!["cabal-mcp-runtime/src/unsafe_simd.rs".to_string()],
+                Some("high"),
+                None,
+                None,
+                Some(false),
+                Some(true),
+            )
+            .expect("evaluate");
+        assert_eq!(out["allow"], Value::Bool(true));
+        assert_eq!(out["mode"].as_str(), Some("require_confirmation"));
+        assert_eq!(out["requires_confirmation"].as_bool(), Some(true));
+        assert_eq!(out["flags"]["touches_unsafe"].as_bool(), Some(true));
     }
 
     fn env_lock() -> &'static Mutex<()> {
@@ -3355,9 +4788,7 @@ mod tests {
             first_target,
             format!(".memory/{}.txt", total - PROXY_LOG_MAX_ENTRIES)
         );
-        let last_target = rt.state.proxy_log[PROXY_LOG_MAX_ENTRIES - 1]
-            .target
-            .clone();
+        let last_target = rt.state.proxy_log[PROXY_LOG_MAX_ENTRIES - 1].target.clone();
         assert_eq!(last_target, format!(".memory/{}.txt", total - 1));
     }
 
@@ -3366,5 +4797,95 @@ mod tests {
         let rt = test_runtime();
         let err = rt.get_proxy_log(Some(0)).expect_err("must fail");
         assert!(err.to_string().contains("limit must be > 0"));
+    }
+
+    #[test]
+    fn role_profile_defaults_to_orchestrator() {
+        let rt = test_runtime();
+        assert_eq!(rt.state.active_role_profile, "orchestrator");
+        assert!(
+            rt.allowed_tools_for_active_role()
+                .iter()
+                .any(|x| x == "cabal.set_role_profile")
+        );
+    }
+
+    #[test]
+    fn role_policy_denies_tool_outside_profile() {
+        let mut rt = test_runtime();
+        rt.state.active_role_profile = "conceptualizer".to_string();
+        let err = rt
+            .ensure_tool_allowed_for_active_role("cabal.proxy_execute")
+            .expect_err("must deny");
+        assert!(err.to_string().contains("policy deny"));
+    }
+
+    #[test]
+    fn role_switch_request_and_reject_flow_updates_pending_state() {
+        let mut rt = test_runtime();
+        let out = rt
+            .request_role_switch(
+                "conceptualizer".to_string(),
+                Some("architect".to_string()),
+                Some("handoff".to_string()),
+            )
+            .expect("request role switch");
+        assert_eq!(
+            out["pending_role_switch"]["target_role"].as_str(),
+            Some("conceptualizer")
+        );
+
+        let out = rt
+            .approve_role_switch(false, Some("orchestrator".to_string()), None)
+            .expect("reject role switch");
+        assert_eq!(out["pending_role_switch"], Value::Null);
+        assert_eq!(out["active_role_profile"].as_str(), Some("orchestrator"));
+    }
+
+    #[test]
+    fn role_profile_list_contains_expected_profiles() {
+        let rt = test_runtime();
+        let out = rt.list_role_profiles();
+        let profiles = out["profiles"].as_object().expect("profiles");
+        assert!(profiles.contains_key("orchestrator"));
+        assert!(profiles.contains_key("rust_engineer"));
+    }
+
+    #[test]
+    fn result_compact_policy_roundtrip_and_compaction() {
+        let mut rt = test_runtime();
+        rt.set_result_compact_policy(Some(true), Some(256), Some(4))
+            .expect("set policy");
+        let policy = rt.get_result_compact_policy();
+        assert_eq!(policy["enabled"].as_bool(), Some(true));
+        assert_eq!(policy["max_chars"].as_u64(), Some(256));
+        assert_eq!(policy["preview_items"].as_u64(), Some(4));
+
+        let large = json!({
+            "items": (0..200).map(|x| format!("item-{x}")).collect::<Vec<_>>()
+        });
+        let compacted = rt
+            .compact_result_value(&large, None)
+            .expect("compact result");
+        assert_eq!(compacted["truncated"].as_bool(), Some(true));
+        assert!(
+            compacted["text"]
+                .as_str()
+                .unwrap_or_default()
+                .chars()
+                .count()
+                <= 256
+        );
+    }
+
+    #[test]
+    fn context_window_policy_roundtrip() {
+        let mut rt = test_runtime();
+        rt.set_context_window_policy(Some(false), Some(15), Some(24))
+            .expect("set context policy");
+        let policy = rt.get_context_window_policy();
+        assert_eq!(policy["lazy_tool_search"].as_bool(), Some(false));
+        assert_eq!(policy["lazy_threshold_pct"].as_u64(), Some(15));
+        assert_eq!(policy["programmatic_max_calls"].as_u64(), Some(24));
     }
 }

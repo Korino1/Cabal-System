@@ -1,2 +1,4 @@
 /target
+/target_*/
+/target*/
 /.cabal_runtime

@@ -197,6 +197,145 @@ fn mcp_stdio_route_consult_adaptive_e2e() {
 }
 
 #[test]
+fn mcp_stdio_startup_flag_enables_strict_artifacts_gate_policy() {
+    let root = temp_root("cabal_mcp_stdio_startup_strict");
+    fs::create_dir_all(&root).expect("mkdir");
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_cabal-mcp-runtime"))
+        .arg("--strict-artifacts")
+        .current_dir(&root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn runtime");
+
+    let mut child_stdin = child.stdin.take().expect("stdin");
+    let child_stdout = child.stdout.take().expect("stdout");
+    let mut child_stdout = BufReader::new(child_stdout);
+
+    send_ndjson(
+        &mut child_stdin,
+        &json!({
+            "jsonrpc":"2.0","id":1,
+            "method":"initialize",
+            "params":{"protocolVersion":"2025-01-01","capabilities":{},"clientInfo":{"name":"startup-flag-test","version":"1"}}
+        }),
+    );
+    let init = read_content_length_response(&mut child_stdout);
+    assert_eq!(init["id"].as_i64(), Some(1));
+
+    send_ndjson(
+        &mut child_stdin,
+        &json!({
+            "jsonrpc":"2.0","id":2,"method":"tools/call",
+            "params":{"name":"cabal.get_gate_policy","arguments":{}}
+        }),
+    );
+    let gate_policy_resp = read_content_length_response(&mut child_stdout);
+    assert!(
+        gate_policy_resp.get("result").is_some(),
+        "get_gate_policy failed: {gate_policy_resp}"
+    );
+    let gate_policy = decode_tool_result(&gate_policy_resp);
+    assert_eq!(
+        gate_policy["strict_artifacts"].as_bool(),
+        Some(true),
+        "startup strict-artifacts flag was not applied: {gate_policy_resp}"
+    );
+
+    drop(child_stdin);
+    let _ = child.wait();
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn mcp_stdio_task_planner_and_patch_gate_e2e() {
+    let root = temp_root("cabal_mcp_stdio_task_patch");
+    fs::create_dir_all(&root).expect("mkdir");
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_cabal-mcp-runtime"))
+        .current_dir(&root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn runtime");
+
+    let mut child_stdin = child.stdin.take().expect("stdin");
+    let child_stdout = child.stdout.take().expect("stdout");
+    let mut child_stdout = BufReader::new(child_stdout);
+
+    send_ndjson(
+        &mut child_stdin,
+        &json!({
+            "jsonrpc":"2.0","id":1,
+            "method":"initialize",
+            "params":{"protocolVersion":"2025-01-01","capabilities":{},"clientInfo":{"name":"task-patch-test","version":"1"}}
+        }),
+    );
+    let init = read_content_length_response(&mut child_stdout);
+    assert_eq!(init["id"].as_i64(), Some(1));
+
+    send_ndjson(
+        &mut child_stdin,
+        &json!({
+            "jsonrpc":"2.0","id":2,"method":"tools/call",
+            "params":{
+                "name":"cabal.plan_task_execution",
+                "arguments":{
+                    "question":"Deploy critical release gate update to production",
+                    "priority":"critical"
+                }
+            }
+        }),
+    );
+    let plan_resp = read_content_length_response(&mut child_stdout);
+    assert!(
+        plan_resp.get("result").is_some(),
+        "plan failed: {plan_resp}"
+    );
+    let plan = decode_tool_result(&plan_resp);
+    assert_eq!(
+        plan["classification"]["risk"].as_str(),
+        Some("critical"),
+        "unexpected risk classification: {plan_resp}"
+    );
+    assert_eq!(
+        plan["priority"].as_str(),
+        Some("critical"),
+        "unexpected priority payload: {plan_resp}"
+    );
+
+    send_ndjson(
+        &mut child_stdin,
+        &json!({
+            "jsonrpc":"2.0","id":3,"method":"tools/call",
+            "params":{
+                "name":"cabal.evaluate_patch_gate",
+                "arguments":{
+                    "files":[".env.production","src/main.rs"],
+                    "task_risk":"medium",
+                    "tests_passed":true
+                }
+            }
+        }),
+    );
+    let patch_resp = read_content_length_response(&mut child_stdout);
+    assert!(
+        patch_resp.get("result").is_some(),
+        "patch gate failed: {patch_resp}"
+    );
+    let patch_gate = decode_tool_result(&patch_resp);
+    assert_eq!(patch_gate["allow"].as_bool(), Some(false));
+    assert_eq!(patch_gate["mode"].as_str(), Some("deny"));
+
+    drop(child_stdin);
+    let _ = child.wait();
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn mcp_stdio_proxy_execute_traversal_is_blocked() {
     let root = temp_root("cabal_mcp_stdio_proxy");
     fs::create_dir_all(&root).expect("mkdir");
@@ -620,10 +759,7 @@ fn mcp_stdio_get_proxy_log_zero_limit_is_invalid_request() {
         }),
     );
     let resp = read_content_length_response(&mut child_stdout);
-    assert!(
-        resp.get("error").is_some(),
-        "zero limit must fail: {resp}"
-    );
+    assert!(resp.get("error").is_some(), "zero limit must fail: {resp}");
     assert_eq!(
         resp["error"]["data"]["cabal_code"].as_str(),
         Some("INVALID_REQUEST"),
@@ -1662,6 +1798,85 @@ fn mcp_stdio_mixed_ndjson_and_framed_requests_work() {
     let list = read_content_length_response(&mut child_stdout);
     assert_eq!(list["id"].as_i64(), Some(3));
     assert!(list["result"]["tools"].as_array().is_some());
+
+    drop(child_stdin);
+    let _ = child.wait();
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn mcp_stdio_batch_connect_handshake_works() {
+    let root = temp_root("cabal_mcp_stdio_batch_connect");
+    fs::create_dir_all(&root).expect("mkdir");
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_cabal-mcp-runtime"))
+        .current_dir(&root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn runtime");
+
+    let mut child_stdin = child.stdin.take().expect("stdin");
+    let child_stdout = child.stdout.take().expect("stdout");
+    let mut child_stdout = BufReader::new(child_stdout);
+
+    send_framed_jsonrpc(
+        &mut child_stdin,
+        &json!([
+            {
+                "jsonrpc":"2.0","id":1,
+                "method":"initialize",
+                "params":{"protocolVersion":"2025-01-01","capabilities":{},"clientInfo":{"name":"Roo Code","version":"3.50.5"}}
+            },
+            {
+                "jsonrpc":"2.0",
+                "method":"notifications/initialized",
+                "params":{}
+            },
+            {
+                "jsonrpc":"2.0","id":2,
+                "method":"tools/list",
+                "params":{}
+            }
+        ]),
+    );
+    let batch_resp = read_content_length_response(&mut child_stdout);
+    let responses = batch_resp.as_array().expect("batch response array");
+    assert_eq!(
+        responses.len(),
+        2,
+        "unexpected batch response payload: {batch_resp}"
+    );
+
+    let init = responses
+        .iter()
+        .find(|x| x["id"].as_i64() == Some(1))
+        .expect("initialize response");
+    assert_eq!(
+        init["result"]["serverInfo"]["name"].as_str(),
+        Some("cabal-mcp-runtime")
+    );
+    assert_eq!(
+        init["result"]["protocolVersion"].as_str(),
+        Some("2025-01-01")
+    );
+
+    let tools = responses
+        .iter()
+        .find(|x| x["id"].as_i64() == Some(2))
+        .expect("tools/list response");
+    assert!(tools["result"]["tools"].as_array().is_some());
+
+    send_raw(
+        &mut child_stdin,
+        b"[{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"ping\",\"params\":{}}]\n",
+    );
+    let ping_batch = read_content_length_response(&mut child_stdout);
+    let ping_arr = ping_batch.as_array().expect("ndjson batch response array");
+    assert_eq!(ping_arr.len(), 1);
+    assert_eq!(ping_arr[0]["id"].as_i64(), Some(3));
+    assert_eq!(ping_arr[0]["result"], json!({}));
 
     drop(child_stdin);
     let _ = child.wait();
@@ -3668,7 +3883,10 @@ fn mcp_stdio_route_consult_guard_requires_cross_rules_ack_evidence() {
         }),
     );
     let blocked = read_content_length_response(&mut child_stdout);
-    assert!(blocked.get("error").is_some(), "route should fail: {blocked}");
+    assert!(
+        blocked.get("error").is_some(),
+        "route should fail: {blocked}"
+    );
     assert_eq!(
         blocked["error"]["data"]["cabal_code"].as_str(),
         Some("POLICY_DENY"),
@@ -3682,7 +3900,10 @@ fn mcp_stdio_route_consult_guard_requires_cross_rules_ack_evidence() {
     for call in evidence_calls {
         send_ndjson(&mut child_stdin, &call);
         let resp = read_content_length_response(&mut child_stdout);
-        assert!(resp.get("error").is_none(), "register_evidence failed: {resp}");
+        assert!(
+            resp.get("error").is_none(),
+            "register_evidence failed: {resp}"
+        );
     }
 
     send_ndjson(
@@ -3764,7 +3985,10 @@ fn mcp_stdio_ack_cross_rules_updates_status_and_unblocks_consult() {
         "get_cross_rules_status failed: {status_before_raw}"
     );
     let status_before = decode_tool_result(&status_before_raw);
-    assert_eq!(status_before["entry_gate_all_present"].as_bool(), Some(false));
+    assert_eq!(
+        status_before["entry_gate_all_present"].as_bool(),
+        Some(false)
+    );
     assert_eq!(
         status_before["consult_guard"]["all_present"].as_bool(),
         Some(false)
@@ -3785,7 +4009,10 @@ fn mcp_stdio_ack_cross_rules_updates_status_and_unblocks_consult() {
         }),
     );
     let ack_raw = read_content_length_response(&mut child_stdout);
-    assert!(ack_raw.get("error").is_none(), "ack_cross_rules failed: {ack_raw}");
+    assert!(
+        ack_raw.get("error").is_none(),
+        "ack_cross_rules failed: {ack_raw}"
+    );
     let ack = decode_tool_result(&ack_raw);
     assert_eq!(ack["entry_gate_all_present"].as_bool(), Some(true));
     assert_eq!(ack["consult_guard"]["all_present"].as_bool(), Some(true));
@@ -4277,7 +4504,10 @@ fn mcp_stdio_route_consult_adaptive_exploration_selects_undertrained_executor() 
         "route_consult failed: {routed_raw}"
     );
     let routed = decode_tool_result(&routed_raw);
-    assert_eq!(routed["dispatch"]["executor"].as_str(), Some("perf_engineer"));
+    assert_eq!(
+        routed["dispatch"]["executor"].as_str(),
+        Some("perf_engineer")
+    );
     assert_eq!(
         routed["routing_decision"]["strategy"].as_str(),
         Some("adaptive_explore")

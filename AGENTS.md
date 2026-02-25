@@ -1,8 +1,8 @@
 # Operating Guide (Core)
 
 > Ядро правил.  Подробные плейбуки и команды — в `.memory/CONTEXT.md`.
-> Миссия/контекст/таски/прогресс — в `.memory/*`. Контракты — в `spec/contracts/*`. ADR — в `spec/adr/*` (индекс — `.memory/DECISIONS.md`). Спецификации и SDD — в `spec/docs/*`.
-> Система учета/восстановления — `.memory/TRACKING.md`, `.memory/STATE.md`, `.memory/GLOBAL_INDEX.md`, `.memory/PHASES/*`, `.memory/DEFECTS.md`
+> **ВНИМАНИЕ: СИСТЕМА УПРАВЛЯЕТСЯ ЧЕРЕЗ CABAL MCP SERVER.**
+> Вы являетесь Агентом, подключенным через Model Context Protocol. Все ваши действия (чтение файлов, изменение кода, смена фаз) строго контролируются Rust-сервером. Попытки обойти MCP Tools приведут к сбою.
 
 Агент работает в стиле SDD: **Contracts → Tests → Code → ADR → Progress**.
 
@@ -10,11 +10,11 @@
 
 ## 0) Роли и консультации
 Системный автоцикл (обязателен):
-1) Если нет явного концепта/пояснений — запроси их до любого действия.
-2) Прочитай `.memory/LOGIC_PROTOCOL.md` и определи текущий этап протокола 3.1.
-3) Определи следующего Агент (conceptualizer/global-architect/orchestrator/architect/integrator-runtime/mathematician/simd-specialist/qa-agent).
+1) Если нет явного концепта/пояснений — запроси их до любого действия. Запроси `cabal://rules/concept_master` через MCP Resource.
+2) Прочитай `.memory/LOGIC_PROTOCOL.md` (через MCP) и определи текущий этап протокола 3.1.
+3) Чтобы сменить роль, вызови MCP Prompt `cabal_role` (например: orchestrator/architect/mathematician).
 4) Запусти/назначь Агент строго по протоколу 3.1.
-5) После завершения обнови `.memory/LOGIC_PROTOCOL.md` и `.memory/STATE.md`.
+5) После завершения фазы **ОБЯЗАТЕЛЬНО** вызови MCP Tool `cabal_advance_phase`.
 6) Если протокол 3.1 не завершён — вернись к шагу 2.
 7) При противоречиях — `CONSULT` в `.memory/TASKS.md`.
 - Пользователь — **Пользователь проекта**: формулирует цели, утверждает архитектурные решения и приоритеты.
@@ -45,24 +45,16 @@
 
 
 ## 1) Must-Read перед задачей
-Прочти файлы из мемори банка `.memory/`
+Прочти файлы из мемори банка `.memory/` через инструмент чтения ресурсов (MCP Resources):
 Последовательность чтения:
-1) `.memory/MISSION.md` → зачем/ценность/scope.
-2) `.memory/CONTEXT.md` → окружения, стек, команды, quality policy, Deprecation.
-3) `.memory/TASKS.md` → активные задачи (запомни id/owner).
-4) `.memory/ASKS.md` → история пользовательских запросов.
-5) `.memory/DECISIONS.md` → индекс ADR (учти `status/supersedes`) + соответствующие файлы в `spec/adr/`.
-6) `spec/contracts/*` + `spec/contracts/VERSION.json` → версия API и изменения.
-7) `.memory/USECASES.md` → сценарии + acceptance criteria.
-8) `spec/docs/CONCEPT_MASTER.md` + `spec/docs/CONCEPT_MATH_PROOF.md` → канон концепта и математическое обоснование (если созданы).
-9) `.memory/INDEX.yaml` → быстрый контроль актуальности артефактов.
-10) `.memory/TRACKING.md` → регламент учета/восстановления.
-11) `.memory/STATE.md` → точка продолжения (snapshot).
-12) `.memory/GLOBAL_INDEX.md` → активная фаза и реестр фаз (источник истины).
-13) `.memory/PHASES/<Active>/INDEX.md` → контекст активной фазы.
-14) `.memory/PHASES/<Active>/STATE_HISTORY.md` → история снимков фазы (append-only).
-15) `scripts/checkpoint.ps1` → единый снимок состояния.
-16) `.memory/DEFECTS.md` → handoff дефектов (debuger → fixer).
+1) `cabal://memory/MISSION.md` → зачем/ценность/scope.
+2) `cabal://memory/CONTEXT.md` → окружения, стек, команды, quality policy, Deprecation.
+3) `cabal://memory/TASKS.md` → активные задачи (запомни id/owner).
+4) `cabal://memory/ASKS.md` → история пользовательских запросов.
+5) `cabal://spec/docs/CONCEPT_MASTER.md` → канон концепта и жесткие правила.
+6) `cabal://memory/GLOBAL_INDEX.md` → активная фаза и реестр фаз (источник истины).
+7) `cabal://memory/STATE.md` → точка продолжения (snapshot).
+8) `cabal://memory/DEFECTS.md` → handoff дефектов.
 
 ## 1.1) Первый запуск (если файлы пустые)
 - Заполни `MISSION.md`, `CONTEXT.md`, `GLOSSARY.md`, `USECASES.md`. Допускается использовать LLM для первичного черновика на основе проекта.
@@ -130,21 +122,3 @@
 
 ## 8) Формат вывода команд
 Если пишешь мне команды - каждую команду выводи в отдельном фрейме через три обратных апострофа(для удобного копирования команды).
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

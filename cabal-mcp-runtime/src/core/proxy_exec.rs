@@ -202,10 +202,8 @@ pub fn exec_network(operation: &str, target: &str) -> Result<Value> {
         .call()
         .with_context(|| format!("http_get failed: {target}"))?;
     let status = response.status();
-    let (body, truncated, body_bytes) = read_limited_utf8_body(
-        response.into_reader(),
-        NETWORK_MAX_BODY_BYTES,
-    )?;
+    let (body, truncated, body_bytes) =
+        read_limited_utf8_body(response.into_reader(), NETWORK_MAX_BODY_BYTES)?;
     Ok(json!({
         "status": status,
         "body": body,
@@ -259,7 +257,10 @@ fn is_forbidden_ip(ip: IpAddr) -> bool {
     }
 }
 
-fn read_limited_utf8_body(mut reader: impl Read, max_bytes: usize) -> Result<(String, bool, usize)> {
+fn read_limited_utf8_body(
+    mut reader: impl Read,
+    max_bytes: usize,
+) -> Result<(String, bool, usize)> {
     let mut buf = Vec::with_capacity(max_bytes.saturating_add(1));
     let mut limited = reader.by_ref().take((max_bytes.saturating_add(1)) as u64);
     limited

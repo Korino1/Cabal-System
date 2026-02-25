@@ -1,96 +1,430 @@
 #![recursion_limit = "256"]
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Value, json};
-use std::io::{BufReader, stdin, stdout};
+use std::borrow::Cow;
+use std::collections::HashSet;
+use std::fs::OpenOptions;
+use std::io::{BufReader, Write, stdin, stdout};
 use std::path::PathBuf;
+use std::sync::OnceLock;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use cabal_mcp_runtime::cpu::CpuProfile;
 use cabal_mcp_runtime::errors::{classify_error, error_codes_catalog};
-use cabal_mcp_runtime::protocol::{read_jsonrpc_message, write_jsonrpc_message};
+use cabal_mcp_runtime::protocol::{
+    MessageFormat, read_jsonrpc_message, write_jsonrpc_message, write_jsonrpc_message_ndjson,
+};
 use cabal_mcp_runtime::runtime::CabalRuntime;
 
+const DEFAULT_PROTOCOL_VERSION: &str = "2025-01-01";
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct StartupOptions {
+    show_help: bool,
+    strict_artifacts: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResponseWireMode {
+    Framed,
+    Ndjson,
+    Mirror,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CompatAliasProfile {
+    None,
+    Core,
+    Full,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToolNameFormat {
+    Canonical,
+    RooCompact,
+}
+
 fn main() -> Result<()> {
+    trace_line(&format!(
+        "process.start argv={:?}",
+        std::env::args().collect::<Vec<_>>()
+    ));
+    let startup = parse_startup_options(std::env::args().skip(1))?;
+    if startup.show_help {
+        print!("{}", startup_help_text());
+        return Ok(());
+    }
+
     let cpu = CpuProfile::detect().context("cpu feature gate failed")?;
-    eprintln!(
-        "[cabal-mcp-runtime] started; path={:?}; vendor={}",
-        cpu.path, cpu.vendor
-    );
+    if startup_logging_enabled() {
+        eprintln!(
+            "[cabal-mcp-runtime] started; path={:?}; vendor={}",
+            cpu.path, cpu.vendor
+        );
+    }
 
     let cwd = std::env::current_dir().context("failed to get cwd")?;
+    trace_line(&format!("process.cwd {}", cwd.display()));
     let state_root = resolve_state_root(&cwd);
     let mut runtime = CabalRuntime::load_or_create(&state_root, &cpu)?;
+    if let Some(strict) = startup.strict_artifacts {
+        runtime.set_gate_policy(Some(strict))?;
+        runtime.persist()?;
+        if startup_logging_enabled() {
+            eprintln!(
+                "[cabal-mcp-runtime] startup flag applied: strict_artifacts={}",
+                strict
+            );
+        }
+    }
     runtime.validate_cpu_policy(&cpu)?;
 
     let mut reader = BufReader::new(stdin().lock());
     let mut writer = stdout().lock();
+    let response_mode = response_wire_mode_from_env();
+    trace_line(&format!("response.mode {:?}", response_mode));
 
     loop {
-        let msg = match read_jsonrpc_message(&mut reader) {
+        let incoming = match read_jsonrpc_message(&mut reader) {
             Ok(Some(v)) => v,
             Ok(None) => break,
             Err(err) => {
-                let classified = classify_error("protocol.read", None, &err);
-                let response = json!({
-                    "jsonrpc": "2.0",
-                    "id": Value::Null,
-                    "error": {
-                        "code": classified.rpc_code,
-                        "message": classified.message,
-                        "data": {
-                            "cabal_code": classified.cabal_code,
-                            "retryable": classified.retryable,
-                            "method": "protocol.read",
-                            "tool": Value::Null
-                        }
-                    }
-                });
-                write_jsonrpc_message(&mut writer, &response)?;
+                trace_line(&format!("protocol.read.error {}", err));
+                let response = build_error_response("protocol.read", None, Value::Null, &err);
+                write_response_for_mode(&mut writer, &response, None, response_mode)?;
+                trace_line("protocol.read.error.response_written");
                 continue;
             }
         };
-        let Some(id) = msg.get("id").cloned() else {
-            continue;
-        };
-        let method = msg
-            .get("method")
-            .and_then(|m| m.as_str())
-            .unwrap_or_default();
-        let params = msg.get("params").cloned().unwrap_or_else(|| json!({}));
-
-        let response = match handle_request(&mut runtime, &cpu, method, params.clone()) {
-            Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
-            Err(err) => {
-                let tool_name = if method == "tools/call" {
-                    params.get("name").and_then(|v| v.as_str())
-                } else {
-                    None
-                };
-                let classified = classify_error(method, tool_name, &err);
-                json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "error": {
-                        "code": classified.rpc_code,
-                        "message": classified.message,
-                        "data": {
-                            "cabal_code": classified.cabal_code,
-                            "retryable": classified.retryable,
-                            "method": method,
-                            "tool": tool_name
-                        }
-                    }
-                })
-            }
-        };
+        trace_line(&format!(
+            "protocol.msg kind={} format={:?}",
+            if incoming.value.is_array() {
+                "batch"
+            } else if incoming.value.is_object() {
+                "object"
+            } else {
+                "other"
+            },
+            incoming.format
+        ));
+        let maybe_response = dispatch_jsonrpc_message(&mut runtime, &cpu, incoming.value)?;
         runtime.persist()?;
-        write_jsonrpc_message(&mut writer, &response)?;
+        if let Some(response) = maybe_response {
+            write_response_for_mode(&mut writer, &response, Some(incoming.format), response_mode)?;
+            trace_line("protocol.response.written");
+        }
     }
+    trace_line("process.exit.ok");
     Ok(())
+}
+
+fn response_wire_mode_from_env() -> ResponseWireMode {
+    match std::env::var("CABAL_MCP_RESPONSE_MODE")
+        .ok()
+        .map(|v| v.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("ndjson") => ResponseWireMode::Ndjson,
+        Some("mirror") => ResponseWireMode::Mirror,
+        _ => ResponseWireMode::Framed,
+    }
+}
+
+fn compat_alias_profile_from_env() -> CompatAliasProfile {
+    match std::env::var("CABAL_MCP_COMPAT_ALIAS_PROFILE")
+        .ok()
+        .map(|v| v.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("none" | "off" | "0") => CompatAliasProfile::None,
+        Some("full" | "all") => CompatAliasProfile::Full,
+        _ => CompatAliasProfile::Core,
+    }
+}
+
+fn tool_name_format_from_env() -> ToolNameFormat {
+    match std::env::var("CABAL_MCP_TOOL_NAME_FORMAT")
+        .ok()
+        .map(|v| v.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("roo" | "compact" | "cabalcompact" | "nodot") => ToolNameFormat::RooCompact,
+        _ => ToolNameFormat::Canonical,
+    }
+}
+
+fn write_response_for_mode<W: Write>(
+    writer: &mut W,
+    response: &Value,
+    request_format: Option<MessageFormat>,
+    mode: ResponseWireMode,
+) -> Result<()> {
+    let emit_ndjson = match mode {
+        ResponseWireMode::Framed => false,
+        ResponseWireMode::Ndjson => true,
+        ResponseWireMode::Mirror => matches!(request_format, Some(MessageFormat::Ndjson)),
+    };
+    if emit_ndjson {
+        write_jsonrpc_message_ndjson(writer, response)
+    } else {
+        write_jsonrpc_message(writer, response)
+    }
+}
+
+fn dispatch_jsonrpc_message(
+    runtime: &mut CabalRuntime,
+    cpu: &CpuProfile,
+    msg: Value,
+) -> Result<Option<Value>> {
+    match msg {
+        Value::Object(_) => dispatch_single_message(runtime, cpu, msg),
+        Value::Array(items) => dispatch_batch_messages(runtime, cpu, items),
+        _ => {
+            let err = anyhow!("invalid request payload: expected object or batch array");
+            Ok(Some(build_error_response(
+                "protocol.dispatch",
+                None,
+                Value::Null,
+                &err,
+            )))
+        }
+    }
+}
+
+fn dispatch_batch_messages(
+    runtime: &mut CabalRuntime,
+    cpu: &CpuProfile,
+    items: Vec<Value>,
+) -> Result<Option<Value>> {
+    trace_line(&format!("protocol.batch size={}", items.len()));
+    if items.is_empty() {
+        let err = anyhow!("invalid request payload: empty batch is not allowed");
+        return Ok(Some(build_error_response(
+            "protocol.dispatch",
+            None,
+            Value::Null,
+            &err,
+        )));
+    }
+
+    let mut responses = Vec::new();
+    for item in items {
+        if let Some(response) = dispatch_single_message(runtime, cpu, item)? {
+            responses.push(response);
+        }
+    }
+
+    if responses.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(Value::Array(responses)))
+    }
+}
+
+fn dispatch_single_message(
+    runtime: &mut CabalRuntime,
+    cpu: &CpuProfile,
+    msg: Value,
+) -> Result<Option<Value>> {
+    let Some(obj) = msg.as_object() else {
+        let err = anyhow!("invalid request payload: expected object");
+        return Ok(Some(build_error_response(
+            "protocol.dispatch",
+            None,
+            Value::Null,
+            &err,
+        )));
+    };
+
+    let method = obj
+        .get("method")
+        .and_then(|m| m.as_str())
+        .unwrap_or_default();
+    let params = obj.get("params").cloned().unwrap_or_else(|| json!({}));
+    let id = obj.get("id").cloned();
+    trace_line(&format!(
+        "request method={} id_present={} id_is_null={}",
+        method,
+        id.is_some(),
+        matches!(id, Some(Value::Null))
+    ));
+
+    if id.is_none() {
+        // Compatibility path: some clients may accidentally send initialize as a
+        // notification (without id) but still wait for initialize result.
+        if method == "initialize" {
+            let result = handle_request(runtime, cpu, method, params)?;
+            return Ok(Some(
+                json!({"jsonrpc": "2.0", "id": Value::Null, "result": result}),
+            ));
+        }
+        let _ = handle_notification(runtime, cpu, method, params);
+        return Ok(None);
+    }
+    let id = id.expect("id checked");
+
+    let response = match handle_request(runtime, cpu, method, params.clone()) {
+        Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
+        Err(err) => {
+            let tool_name = if method == "tools/call" {
+                params.get("name").and_then(|v| v.as_str())
+            } else {
+                None
+            };
+            build_error_response(method, tool_name, id, &err)
+        }
+    };
+    trace_line(&format!("request.done method={}", method));
+    Ok(Some(response))
+}
+
+fn handle_notification(
+    runtime: &mut CabalRuntime,
+    cpu: &CpuProfile,
+    method: &str,
+    params: Value,
+) -> Result<()> {
+    match method {
+        "notifications/initialized" | "$/cancelRequest" | "$/progress" => Ok(()),
+        "logging/setLevel" => Ok(()),
+        // Some hosts send ping as notification even though it is usually a request.
+        "ping" => Ok(()),
+        // Process known request-like methods if they accidentally arrive as notifications.
+        _ if method == "initialize"
+            || method == "tools/list"
+            || method == "tools/call"
+            || method == "resources/list"
+            || method == "resources/templates/list"
+            || method == "prompts/list" =>
+        {
+            let _ = handle_request(runtime, cpu, method, params)?;
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+fn build_error_response(
+    method: &str,
+    tool_name: Option<&str>,
+    id: Value,
+    err: &anyhow::Error,
+) -> Value {
+    let classified = classify_error(method, tool_name, err);
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": {
+            "code": classified.rpc_code,
+            "message": classified.message,
+            "data": {
+                "cabal_code": classified.cabal_code,
+                "retryable": classified.retryable,
+                "method": method,
+                "tool": tool_name
+            }
+        }
+    })
+}
+
+fn trace_line(msg: &str) {
+    let Ok(path) = std::env::var("CABAL_MCP_TRACE_FILE") else {
+        return;
+    };
+    if path.trim().is_empty() {
+        return;
+    }
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs_f64();
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "[{ts:.3}] {msg}");
+    }
+}
+
+fn startup_logging_enabled() -> bool {
+    matches!(
+        std::env::var("CABAL_MCP_STARTUP_LOG")
+            .ok()
+            .map(|v| v.trim().to_ascii_lowercase())
+            .as_deref(),
+        Some("1" | "true" | "yes" | "on")
+    )
 }
 
 fn resolve_state_root(cwd: &PathBuf) -> PathBuf {
     cwd.clone()
+}
+
+fn startup_help_text() -> &'static str {
+    concat!(
+        "Cabal MCP Runtime\n\n",
+        "Usage:\n",
+        "  cabal-mcp-runtime [OPTIONS]\n\n",
+        "Options:\n",
+        "  -h, --help               Show this help and exit\n",
+        "  --strict-artifacts       Enable strict file-based gate artifacts before MCP loop\n",
+        "  --no-strict-artifacts    Disable strict file-based gate artifacts before MCP loop\n",
+        "  --strict-artifacts=<v>   Explicit value: true|false|1|0|yes|no|on|off\n",
+    )
+}
+
+fn parse_startup_options<I, S>(args: I) -> Result<StartupOptions>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+{
+    let mut out = StartupOptions::default();
+    let raw: Vec<String> = args.into_iter().map(Into::into).collect();
+    let mut idx = 0usize;
+    while idx < raw.len() {
+        let arg = raw[idx].as_str();
+        match arg {
+            "-h" | "--help" => {
+                out.show_help = true;
+            }
+            "--strict-artifacts" => {
+                if idx + 1 < raw.len() {
+                    let next = raw[idx + 1].as_str();
+                    if let Some(v) = parse_bool_flag_value(next) {
+                        out.strict_artifacts = Some(v);
+                        idx += 1;
+                    } else {
+                        out.strict_artifacts = Some(true);
+                    }
+                } else {
+                    out.strict_artifacts = Some(true);
+                }
+            }
+            "--no-strict-artifacts" => {
+                out.strict_artifacts = Some(false);
+            }
+            _ => {
+                if let Some(value) = arg.strip_prefix("--strict-artifacts=") {
+                    let parsed = parse_bool_flag_value(value).ok_or_else(|| {
+                        anyhow!(
+                            "invalid value for --strict-artifacts: {value} (expected true|false|1|0|yes|no|on|off)"
+                        )
+                    })?;
+                    out.strict_artifacts = Some(parsed);
+                } else {
+                    trace_line(&format!("startup.unknown_flag.ignored {arg}"));
+                }
+            }
+        }
+        idx += 1;
+    }
+    Ok(out)
+}
+
+fn parse_bool_flag_value(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
 }
 
 fn handle_request(
@@ -101,6 +435,11 @@ fn handle_request(
 ) -> Result<Value> {
     match method {
         "initialize" => {
+            let negotiated_protocol = params
+                .get("protocolVersion")
+                .and_then(|x| x.as_str())
+                .filter(|x| !x.trim().is_empty())
+                .unwrap_or(DEFAULT_PROTOCOL_VERSION);
             let client_name = params
                 .get("clientInfo")
                 .and_then(|x| x.get("name"))
@@ -111,13 +450,15 @@ fn handle_request(
                 .and_then(|x| x.as_str());
             let ide = runtime.register_ide_client_session(client_name, client_version)?;
             Ok(json!({
-                "protocolVersion": "2025-01-01",
+                "protocolVersion": negotiated_protocol,
                 "serverInfo": {
                     "name": "cabal-mcp-runtime",
                     "version": "0.1.0"
                 },
                 "capabilities": {
-                    "tools": {}
+                    "tools": {
+                        "listChanged": false
+                    }
                 },
                 "cabal": {
                     "ide_profile": ide["active_profile"],
@@ -125,8 +466,13 @@ fn handle_request(
                 }
             }))
         }
+        "ping" => Ok(json!({})),
+        "logging/setLevel" => Ok(json!({})),
+        "resources/list" => Ok(json!({"resources": []})),
+        "resources/templates/list" => Ok(json!({"resourceTemplates": []})),
+        "prompts/list" => Ok(json!({"prompts": []})),
         "tools/list" => Ok(json!({
-            "tools": tools_catalog()
+            "tools": tools_catalog(runtime)
         })),
         "tools/call" => {
             let name = params
@@ -150,7 +496,23 @@ fn call_tool(
     name: &str,
     arguments: Value,
 ) -> Result<Value> {
-    let result = match name {
+    let normalized_name = normalize_tool_name_for_dispatch(name);
+    if normalized_name.as_ref() != name {
+        trace_line(&format!(
+            "tools.call.normalized original={} normalized={}",
+            name,
+            normalized_name.as_ref()
+        ));
+    }
+    if !is_known_canonical_tool_name(normalized_name.as_ref()) {
+        return Err(anyhow!(
+            "unknown tool: {name} (normalized: {})",
+            normalized_name.as_ref()
+        ));
+    }
+    runtime.ensure_tool_allowed_for_active_role(normalized_name.as_ref())?;
+
+    let result = match normalized_name.as_ref() {
         "cabal.get_capabilities" => json!({
             "cpu": cpu,
             "constraints": {
@@ -167,6 +529,86 @@ fn call_tool(
             runtime.validate_error_codes_parity(doc_path)?
         }
         "cabal.get_state" => runtime.get_state_value(),
+        "cabal.tool_search" => handle_tool_search(runtime, &arguments)?,
+        "cabal.get_tool_schema" => handle_get_tool_schema(runtime, &arguments)?,
+        "cabal.programmatic_call" => handle_programmatic_call(runtime, cpu, &arguments)?,
+        "cabal.result_compact" => {
+            let payload = arguments
+                .get("payload")
+                .cloned()
+                .ok_or_else(|| anyhow!("payload is required"))?;
+            let max_chars = arguments.get("max_chars").and_then(|x| x.as_u64());
+            runtime.compact_result_value(&payload, max_chars)?
+        }
+        "cabal.get_result_compact_policy" => runtime.get_result_compact_policy(),
+        "cabal.set_result_compact_policy" => {
+            let enabled = arguments.get("enabled").and_then(|x| x.as_bool());
+            let max_chars = arguments.get("max_chars").and_then(|x| x.as_u64());
+            let preview_items = arguments.get("preview_items").and_then(|x| x.as_u64());
+            runtime.set_result_compact_policy(enabled, max_chars, preview_items)?
+        }
+        "cabal.get_context_window_policy" => runtime.get_context_window_policy(),
+        "cabal.set_context_window_policy" => {
+            let lazy_tool_search = arguments.get("lazy_tool_search").and_then(|x| x.as_bool());
+            let lazy_threshold_pct = arguments.get("lazy_threshold_pct").and_then(|x| x.as_u64());
+            let programmatic_max_calls = arguments
+                .get("programmatic_max_calls")
+                .and_then(|x| x.as_u64());
+            runtime.set_context_window_policy(
+                lazy_tool_search,
+                lazy_threshold_pct,
+                programmatic_max_calls,
+            )?
+        }
+        "cabal.get_role_profile" => runtime.get_role_profile(),
+        "cabal.list_role_profiles" => runtime.list_role_profiles(),
+        "cabal.request_role_switch" => {
+            let target_role = arguments
+                .get("target_role")
+                .and_then(|x| x.as_str())
+                .ok_or_else(|| anyhow!("target_role is required"))?
+                .to_string();
+            let requested_by = arguments
+                .get("requested_by")
+                .and_then(|x| x.as_str())
+                .map(|x| x.to_string());
+            let reason = arguments
+                .get("reason")
+                .and_then(|x| x.as_str())
+                .map(|x| x.to_string());
+            runtime.request_role_switch(target_role, requested_by, reason)?
+        }
+        "cabal.approve_role_switch" => {
+            let approved = arguments
+                .get("approved")
+                .and_then(|x| x.as_bool())
+                .ok_or_else(|| anyhow!("approved is required"))?;
+            let approved_by = arguments
+                .get("approved_by")
+                .and_then(|x| x.as_str())
+                .map(|x| x.to_string());
+            let note = arguments
+                .get("note")
+                .and_then(|x| x.as_str())
+                .map(|x| x.to_string());
+            runtime.approve_role_switch(approved, approved_by, note)?
+        }
+        "cabal.set_role_profile" => {
+            let target_role = arguments
+                .get("target_role")
+                .and_then(|x| x.as_str())
+                .ok_or_else(|| anyhow!("target_role is required"))?
+                .to_string();
+            let actor = arguments
+                .get("actor")
+                .and_then(|x| x.as_str())
+                .map(|x| x.to_string());
+            let reason = arguments
+                .get("reason")
+                .and_then(|x| x.as_str())
+                .map(|x| x.to_string());
+            runtime.set_role_profile(target_role, actor, reason)?
+        }
         "cabal.get_cpu_policy" => runtime.get_cpu_policy(),
         "cabal.set_cpu_policy" => {
             let require_zen4_fast_path = arguments
@@ -231,6 +673,81 @@ fn call_tool(
             )?
         }
         "cabal.get_consult_routing" => runtime.get_consult_routing(),
+        "cabal.classify_task" => {
+            let question = arguments
+                .get("question")
+                .and_then(|x| x.as_str())
+                .ok_or_else(|| anyhow!("question is required"))?;
+            let task_type = arguments
+                .get("task_type")
+                .and_then(|x| x.as_str())
+                .map(|x| x.to_string());
+            runtime.classify_task(question, task_type)?
+        }
+        "cabal.get_budget_policy" => runtime.get_budget_policy(),
+        "cabal.set_budget_policy" => {
+            let risk = arguments
+                .get("risk")
+                .and_then(|x| x.as_str())
+                .ok_or_else(|| anyhow!("risk is required"))?
+                .to_string();
+            let max_steps = arguments.get("max_steps").and_then(|x| x.as_u64());
+            let max_tool_calls = arguments.get("max_tool_calls").and_then(|x| x.as_u64());
+            let max_runtime_sec = arguments.get("max_runtime_sec").and_then(|x| x.as_u64());
+            runtime.set_budget_policy(risk, max_steps, max_tool_calls, max_runtime_sec)?
+        }
+        "cabal.plan_task_execution" => {
+            let question = arguments
+                .get("question")
+                .and_then(|x| x.as_str())
+                .ok_or_else(|| anyhow!("question is required"))?;
+            let task_type = arguments
+                .get("task_type")
+                .and_then(|x| x.as_str())
+                .map(|x| x.to_string());
+            let priority = arguments.get("priority").and_then(|x| x.as_str());
+            runtime.plan_task_execution(question, task_type, priority)?
+        }
+        "cabal.get_patch_gate_policy" => runtime.get_patch_gate_policy(),
+        "cabal.set_patch_gate_policy" => {
+            let require_review_on_unsafe = arguments
+                .get("require_review_on_unsafe")
+                .and_then(|x| x.as_bool());
+            let require_review_on_build_scripts = arguments
+                .get("require_review_on_build_scripts")
+                .and_then(|x| x.as_bool());
+            let deny_on_secrets = arguments.get("deny_on_secrets").and_then(|x| x.as_bool());
+            let max_auto_apply_files = arguments
+                .get("max_auto_apply_files")
+                .and_then(|x| x.as_u64());
+            runtime.set_patch_gate_policy(
+                require_review_on_unsafe,
+                require_review_on_build_scripts,
+                deny_on_secrets,
+                max_auto_apply_files,
+            )?
+        }
+        "cabal.evaluate_patch_gate" => {
+            let files = read_string_array(arguments.get("files"))?;
+            if files.is_empty() {
+                return Err(anyhow!("files is required"));
+            }
+            let task_risk = arguments.get("task_risk").and_then(|x| x.as_str());
+            let touches_unsafe = arguments.get("touches_unsafe").and_then(|x| x.as_bool());
+            let touches_build_scripts = arguments
+                .get("touches_build_scripts")
+                .and_then(|x| x.as_bool());
+            let touches_secrets = arguments.get("touches_secrets").and_then(|x| x.as_bool());
+            let tests_passed = arguments.get("tests_passed").and_then(|x| x.as_bool());
+            runtime.evaluate_patch_gate(
+                files,
+                task_risk,
+                touches_unsafe,
+                touches_build_scripts,
+                touches_secrets,
+                tests_passed,
+            )?
+        }
         "cabal.get_cross_rules_status" => runtime.get_cross_rules_status(),
         "cabal.get_consult_guard_policy" => runtime.get_consult_guard_policy(),
         "cabal.get_adaptive_router" => runtime.get_adaptive_router(),
@@ -705,13 +1222,362 @@ fn call_tool(
                 .unwrap_or_else(|| json!({}));
             runtime.record_event(cpu, kind, payload)?
         }
-        _ => return Err(anyhow!("unknown tool: {name}")),
+        _ => unreachable!("tool name pre-validated"),
     };
 
     Ok(json!({
         "content": [{"type": "text", "text": serde_json::to_string_pretty(&result)?}],
         "isError": false
     }))
+}
+
+fn handle_tool_search(runtime: &CabalRuntime, arguments: &Value) -> Result<Value> {
+    let query = arguments
+        .get("query")
+        .and_then(|x| x.as_str())
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    if query.chars().count() > 256 {
+        bail!("query is too long");
+    }
+    let limit = arguments
+        .get("limit")
+        .and_then(|x| x.as_u64())
+        .unwrap_or(12);
+    if limit == 0 || limit > 100 {
+        bail!("limit must be in [1, 100]");
+    }
+    let include_schema = arguments
+        .get("include_schema")
+        .and_then(|x| x.as_bool())
+        .unwrap_or(false);
+    let include_unavailable = arguments
+        .get("include_unavailable")
+        .and_then(|x| x.as_bool())
+        .unwrap_or(false);
+
+    let allowed: HashSet<String> = runtime
+        .allowed_tools_for_active_role()
+        .into_iter()
+        .collect();
+    let catalog = if include_unavailable {
+        tools_catalog_with_alias_profile_and_format_filtered(
+            CompatAliasProfile::None,
+            ToolNameFormat::Canonical,
+            None,
+        )
+    } else {
+        tools_catalog_with_alias_profile_and_format_filtered(
+            CompatAliasProfile::None,
+            ToolNameFormat::Canonical,
+            Some(&allowed),
+        )
+    };
+    let Some(arr) = catalog.as_array() else {
+        return Ok(json!({"query": query, "total_candidates": 0, "tools": []}));
+    };
+
+    let query_tokens: Vec<&str> = query.split_whitespace().filter(|x| !x.is_empty()).collect();
+    let mut ranked: Vec<(i64, Value)> = Vec::new();
+    for tool in arr {
+        let Some(name) = tool.get("name").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let desc = tool
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let mut input_keys = Vec::new();
+        if let Some(props) = tool
+            .get("inputSchema")
+            .and_then(|v| v.get("properties"))
+            .and_then(|v| v.as_object())
+        {
+            input_keys.extend(props.keys().map(|x| x.as_str()));
+        }
+
+        let score = score_tool_match(&query_tokens, name, desc, &input_keys);
+        if !query_tokens.is_empty() && score == 0 {
+            continue;
+        }
+
+        let mut card = json!({
+            "name": name,
+            "summary": first_sentence_or_clip(desc, 180),
+            "available_for_active_role": allowed.contains(name),
+            "score": score,
+        });
+        if include_schema {
+            card["inputSchema"] = tool
+                .get("inputSchema")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+        } else {
+            card["input_keys"] = json!(input_keys);
+        }
+        ranked.push((score, card));
+    }
+
+    ranked.sort_by(|a, b| {
+        let an = a.1.get("name").and_then(|v| v.as_str()).unwrap_or_default();
+        let bn = b.1.get("name").and_then(|v| v.as_str()).unwrap_or_default();
+        b.0.cmp(&a.0).then_with(|| an.cmp(bn))
+    });
+    let tools: Vec<Value> = ranked
+        .into_iter()
+        .take(limit as usize)
+        .map(|(_, v)| v)
+        .collect();
+    Ok(json!({
+        "query": query,
+        "active_role_profile": runtime.state.active_role_profile,
+        "lazy_tool_search": runtime.state.context_window_policy.lazy_tool_search,
+        "lazy_threshold_pct": runtime.state.context_window_policy.lazy_threshold_pct,
+        "returned": tools.len(),
+        "tools": tools
+    }))
+}
+
+fn handle_get_tool_schema(runtime: &CabalRuntime, arguments: &Value) -> Result<Value> {
+    let requested = arguments
+        .get("name")
+        .and_then(|x| x.as_str())
+        .ok_or_else(|| anyhow!("name is required"))?;
+    let normalized = normalize_tool_name_for_dispatch(requested).into_owned();
+    if !is_known_canonical_tool_name(&normalized) {
+        bail!("unknown tool: {requested} (normalized: {normalized})");
+    }
+
+    let catalog = tools_catalog_with_alias_profile_and_format_filtered(
+        CompatAliasProfile::None,
+        ToolNameFormat::Canonical,
+        None,
+    );
+    let Some(arr) = catalog.as_array() else {
+        bail!("tool catalog is unavailable");
+    };
+    let tool = arr
+        .iter()
+        .find(|x| x.get("name").and_then(|v| v.as_str()) == Some(normalized.as_str()))
+        .cloned()
+        .ok_or_else(|| anyhow!("unknown tool: {normalized}"))?;
+    let allowed: HashSet<String> = runtime
+        .allowed_tools_for_active_role()
+        .into_iter()
+        .collect();
+    Ok(json!({
+        "requested_name": requested,
+        "normalized_name": normalized,
+        "available_for_active_role": allowed.contains(&normalized),
+        "schema": tool
+    }))
+}
+
+fn handle_programmatic_call(
+    runtime: &mut CabalRuntime,
+    cpu: &CpuProfile,
+    arguments: &Value,
+) -> Result<Value> {
+    let calls = arguments
+        .get("calls")
+        .and_then(|x| x.as_array())
+        .ok_or_else(|| anyhow!("calls is required"))?;
+    if calls.is_empty() {
+        bail!("calls is required");
+    }
+
+    let stop_on_error = arguments
+        .get("stop_on_error")
+        .and_then(|x| x.as_bool())
+        .unwrap_or(true);
+    let compact_each_result = arguments
+        .get("compact_each_result")
+        .and_then(|x| x.as_bool())
+        .unwrap_or(true);
+    let max_chars = arguments.get("max_chars").and_then(|x| x.as_u64());
+    let limit = arguments
+        .get("max_calls")
+        .and_then(|x| x.as_u64())
+        .unwrap_or(runtime.state.context_window_policy.programmatic_max_calls);
+    if !(1..=256).contains(&limit) {
+        bail!("max_calls must be in [1, 256]");
+    }
+    if calls.len() > limit as usize {
+        bail!("calls exceeds max_calls policy");
+    }
+
+    let mut steps = Vec::new();
+    let mut halted = false;
+
+    for (idx, item) in calls.iter().enumerate() {
+        let call_name = item
+            .get("name")
+            .and_then(|x| x.as_str())
+            .ok_or_else(|| anyhow!("calls[].name is required"))?;
+        let call_args = item.get("arguments").cloned().unwrap_or_else(|| json!({}));
+        if !call_args.is_object() {
+            bail!("calls[].arguments must be an object");
+        }
+        let normalized = normalize_tool_name_for_dispatch(call_name).into_owned();
+        if normalized == "cabal.programmatic_call" {
+            bail!("programmatic_call recursion is forbidden");
+        }
+
+        match call_tool(runtime, cpu, call_name, call_args.clone()) {
+            Ok(wrapper) => {
+                let payload = extract_tool_payload(&wrapper)?;
+                let result = if compact_each_result {
+                    runtime.compact_result_value(&payload, max_chars)?
+                } else {
+                    json!({
+                        "truncated": false,
+                        "original_chars": serde_json::to_string_pretty(&payload)?.chars().count(),
+                        "max_chars": max_chars,
+                        "text": serde_json::to_string_pretty(&payload)?
+                    })
+                };
+                steps.push(json!({
+                    "index": idx + 1,
+                    "name": call_name,
+                    "normalized_name": normalized,
+                    "ok": true,
+                    "result": result
+                }));
+            }
+            Err(err) => {
+                let classified = classify_error("tools/call", Some(normalized.as_str()), &err);
+                let step = json!({
+                    "index": idx + 1,
+                    "name": call_name,
+                    "normalized_name": normalized,
+                    "ok": false,
+                    "error": {
+                        "cabal_code": classified.cabal_code,
+                        "rpc_code": classified.rpc_code,
+                        "retryable": classified.retryable,
+                        "message": classified.message
+                    }
+                });
+                steps.push(step);
+                if stop_on_error {
+                    halted = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    let failed = steps
+        .iter()
+        .filter(|x| x.get("ok").and_then(|v| v.as_bool()) == Some(false))
+        .count();
+    let aggregate = runtime.compact_result_value(&json!(steps), max_chars)?;
+    Ok(json!({
+        "active_role_profile": runtime.state.active_role_profile,
+        "stop_on_error": stop_on_error,
+        "compact_each_result": compact_each_result,
+        "max_calls": limit,
+        "executed_steps": steps.len(),
+        "failed_steps": failed,
+        "halted": halted,
+        "steps": steps,
+        "aggregate": aggregate
+    }))
+}
+
+fn extract_tool_payload(wrapper: &Value) -> Result<Value> {
+    let text = wrapper
+        .get("content")
+        .and_then(|x| x.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|x| x.get("text"))
+        .and_then(|x| x.as_str())
+        .ok_or_else(|| anyhow!("tool response payload is malformed"))?;
+    match serde_json::from_str::<Value>(text) {
+        Ok(v) => Ok(v),
+        Err(_) => Ok(Value::String(text.to_string())),
+    }
+}
+
+fn score_tool_match(tokens: &[&str], name: &str, description: &str, input_keys: &[&str]) -> i64 {
+    if tokens.is_empty() {
+        return 1;
+    }
+    let name_l = name.to_ascii_lowercase();
+    let desc_l = description.to_ascii_lowercase();
+    let keys_l: Vec<String> = input_keys.iter().map(|x| x.to_ascii_lowercase()).collect();
+    let mut score = 0i64;
+    for token in tokens {
+        let t = token.to_ascii_lowercase();
+        if name_l.contains(t.as_str()) {
+            score += 6;
+        }
+        if desc_l.contains(t.as_str()) {
+            score += 2;
+        }
+        if keys_l.iter().any(|k| k.contains(t.as_str())) {
+            score += 3;
+        }
+    }
+    score
+}
+
+fn first_sentence_or_clip(input: &str, max_chars: usize) -> String {
+    let input = input.trim();
+    if input.is_empty() {
+        return String::new();
+    }
+    if let Some((idx, _)) = input.char_indices().find(|(_, c)| *c == '.') {
+        let first = &input[..=idx];
+        if first.chars().count() <= max_chars {
+            return first.to_string();
+        }
+    }
+    let mut out = String::new();
+    for ch in input.chars().take(max_chars) {
+        out.push(ch);
+    }
+    if input.chars().count() > max_chars {
+        out.push_str("...");
+    }
+    out
+}
+
+fn normalize_tool_name_for_dispatch(name: &str) -> Cow<'_, str> {
+    if name.starts_with("cabal.") {
+        return Cow::Borrowed(name);
+    }
+    if let Some(rest) = name.strip_prefix("cabal")
+        && !rest.is_empty()
+        && !rest.starts_with('.')
+    {
+        return Cow::Owned(format!("cabal.{rest}"));
+    }
+    Cow::Borrowed(name)
+}
+
+fn known_canonical_tool_names() -> &'static HashSet<String> {
+    static NAMES: OnceLock<HashSet<String>> = OnceLock::new();
+    NAMES.get_or_init(|| {
+        let tools = tools_catalog_with_alias_profile_and_format(
+            CompatAliasProfile::None,
+            ToolNameFormat::Canonical,
+        );
+        let mut names = HashSet::new();
+        if let Some(arr) = tools.as_array() {
+            for tool in arr {
+                if let Some(name) = tool.get("name").and_then(|v| v.as_str()) {
+                    names.insert(name.to_string());
+                }
+            }
+        }
+        names
+    })
+}
+
+fn is_known_canonical_tool_name(name: &str) -> bool {
+    known_canonical_tool_names().contains(name)
 }
 
 fn read_string_array(value: Option<&Value>) -> Result<Vec<String>> {
@@ -727,8 +1593,70 @@ fn read_string_array(value: Option<&Value>) -> Result<Vec<String>> {
     Ok(out)
 }
 
-fn tools_catalog() -> Value {
-    json!([
+fn tools_catalog(runtime: &CabalRuntime) -> Value {
+    let allowed_tools: HashSet<String> = runtime.allowed_tools_for_active_role().into_iter().collect();
+    let visible_tools = select_visible_tools_for_list(runtime, &allowed_tools);
+    tools_catalog_with_alias_profile_and_format_filtered(
+        compat_alias_profile_from_env(),
+        tool_name_format_from_env(),
+        Some(&visible_tools),
+    )
+}
+
+fn select_visible_tools_for_list(
+    runtime: &CabalRuntime,
+    allowed_tools: &HashSet<String>,
+) -> HashSet<String> {
+    select_visible_tools(allowed_tools, runtime.state.context_window_policy.lazy_tool_search)
+}
+
+fn select_visible_tools(allowed_tools: &HashSet<String>, lazy_tool_search: bool) -> HashSet<String> {
+    if !lazy_tool_search {
+        return allowed_tools.clone();
+    }
+    let bootstrap = bootstrap_visible_tool_names();
+    allowed_tools
+        .iter()
+        .filter(|name| bootstrap.contains(name.as_str()))
+        .cloned()
+        .collect()
+}
+
+fn bootstrap_visible_tool_names() -> &'static HashSet<&'static str> {
+    static BOOTSTRAP: OnceLock<HashSet<&'static str>> = OnceLock::new();
+    BOOTSTRAP.get_or_init(|| {
+        HashSet::from([
+            "cabal.get_state",
+            "cabal.get_role_profile",
+            "cabal.list_role_profiles",
+            "cabal.request_role_switch",
+            "cabal.approve_role_switch",
+            "cabal.set_role_profile",
+            "cabal.tool_search",
+            "cabal.get_tool_schema",
+            "cabal.programmatic_call",
+            "cabal.result_compact",
+            "cabal.get_result_compact_policy",
+            "cabal.set_result_compact_policy",
+            "cabal.get_context_window_policy",
+            "cabal.set_context_window_policy",
+        ])
+    })
+}
+
+fn tools_catalog_with_alias_profile_and_format(
+    profile: CompatAliasProfile,
+    format: ToolNameFormat,
+) -> Value {
+    tools_catalog_with_alias_profile_and_format_filtered(profile, format, None)
+}
+
+fn tools_catalog_with_alias_profile_and_format_filtered(
+    profile: CompatAliasProfile,
+    format: ToolNameFormat,
+    allowed_canonical_tools: Option<&HashSet<String>>,
+) -> Value {
+    let mut tools = json!([
         {
             "name": "cabal.get_capabilities",
             "description": "Возвращает CPU-профиль и активный SIMD execution path.",
@@ -753,6 +1681,151 @@ fn tools_catalog() -> Value {
             "name": "cabal.get_state",
             "description": "Текущее состояние Cabal runtime: фаза, режим CONSULT, policy hash.",
             "inputSchema": {"type": "object", "properties": {}}
+        },
+        {
+            "name": "cabal.tool_search",
+            "description": "Ленивый поиск инструментов по имени/описанию с выдачей кратких карточек.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                    "include_schema": {"type": "boolean"},
+                    "include_unavailable": {"type": "boolean"}
+                }
+            }
+        },
+        {
+            "name": "cabal.get_tool_schema",
+            "description": "Возвращает полное описание и inputSchema выбранного инструмента.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                    "name": {"type": "string"}
+                }
+            }
+        },
+        {
+            "name": "cabal.programmatic_call",
+            "description": "Программный вызов цепочки MCP-инструментов с агрегированным и компактным результатом.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["calls"],
+                "properties": {
+                    "calls": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                            "type": "object",
+                            "required": ["name"],
+                            "properties": {
+                                "name": {"type": "string"},
+                                "arguments": {"type": "object"}
+                            }
+                        }
+                    },
+                    "stop_on_error": {"type": "boolean"},
+                    "compact_each_result": {"type": "boolean"},
+                    "max_calls": {"type": "integer", "minimum": 1, "maximum": 256},
+                    "max_chars": {"type": "integer", "minimum": 256, "maximum": 200000}
+                }
+            }
+        },
+        {
+            "name": "cabal.result_compact",
+            "description": "Сжимает произвольный JSON-результат в компактную форму для контекста.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["payload"],
+                "properties": {
+                    "payload": {},
+                    "max_chars": {"type": "integer", "minimum": 256, "maximum": 200000}
+                }
+            }
+        },
+        {
+            "name": "cabal.get_result_compact_policy",
+            "description": "Возвращает policy компактирования результатов.",
+            "inputSchema": {"type": "object", "properties": {}}
+        },
+        {
+            "name": "cabal.set_result_compact_policy",
+            "description": "Настраивает policy компактирования результатов.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "enabled": {"type": "boolean"},
+                    "max_chars": {"type": "integer", "minimum": 256, "maximum": 200000},
+                    "preview_items": {"type": "integer", "minimum": 1, "maximum": 128}
+                }
+            }
+        },
+        {
+            "name": "cabal.get_context_window_policy",
+            "description": "Возвращает policy экономии контекста и limits programmatic call.",
+            "inputSchema": {"type": "object", "properties": {}}
+        },
+        {
+            "name": "cabal.set_context_window_policy",
+            "description": "Настраивает policy экономии контекста и limits programmatic call.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "lazy_tool_search": {"type": "boolean"},
+                    "lazy_threshold_pct": {"type": "integer", "minimum": 1, "maximum": 95},
+                    "programmatic_max_calls": {"type": "integer", "minimum": 1, "maximum": 256}
+                }
+            }
+        },
+        {
+            "name": "cabal.get_role_profile",
+            "description": "Возвращает активный role-profile и доступные инструменты для текущей роли.",
+            "inputSchema": {"type": "object", "properties": {}}
+        },
+        {
+            "name": "cabal.list_role_profiles",
+            "description": "Возвращает карту role-profile -> доступные инструменты.",
+            "inputSchema": {"type": "object", "properties": {}}
+        },
+        {
+            "name": "cabal.request_role_switch",
+            "description": "Создаёт pending-запрос на переключение role-profile.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["target_role"],
+                "properties": {
+                    "target_role": {"type": "string"},
+                    "requested_by": {"type": "string"},
+                    "reason": {"type": "string"}
+                }
+            }
+        },
+        {
+            "name": "cabal.approve_role_switch",
+            "description": "Подтверждает/отклоняет pending-запрос на переключение role-profile.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["approved"],
+                "properties": {
+                    "approved": {"type": "boolean"},
+                    "approved_by": {"type": "string"},
+                    "note": {"type": "string"}
+                }
+            }
+        },
+        {
+            "name": "cabal.set_role_profile",
+            "description": "Немедленно переключает активный role-profile (guarded).",
+            "inputSchema": {
+                "type": "object",
+                "required": ["target_role"],
+                "properties": {
+                    "target_role": {"type": "string"},
+                    "actor": {"type": "string"},
+                    "reason": {"type": "string"}
+                }
+            }
         },
         {
             "name": "cabal.get_cpu_policy",
@@ -834,6 +1907,84 @@ fn tools_catalog() -> Value {
             "name": "cabal.get_consult_routing",
             "description": "Возвращает policy-driven routing map и SLA timeout policy для CONSULT.",
             "inputSchema": {"type": "object", "properties": {}}
+        },
+        {
+            "name": "cabal.classify_task",
+            "description": "Детерминированно классифицирует задачу (type/risk/confidence) и возвращает базовый budget-profile.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["question"],
+                "properties": {
+                    "question": {"type": "string"},
+                    "task_type": {"type": "string"}
+                }
+            }
+        },
+        {
+            "name": "cabal.get_budget_policy",
+            "description": "Возвращает policy бюджетов выполнения по risk-level (steps/tool_calls/runtime_sec).",
+            "inputSchema": {"type": "object", "properties": {}}
+        },
+        {
+            "name": "cabal.set_budget_policy",
+            "description": "Обновляет budget-policy для risk-level.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["risk"],
+                "properties": {
+                    "risk": {"type": "string", "enum": ["low", "medium", "high", "critical"]},
+                    "max_steps": {"type": "integer", "minimum": 1},
+                    "max_tool_calls": {"type": "integer", "minimum": 1},
+                    "max_runtime_sec": {"type": "integer", "minimum": 1}
+                }
+            }
+        },
+        {
+            "name": "cabal.plan_task_execution",
+            "description": "Строит execution-plan: классификация задачи + budget с учётом priority.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["question"],
+                "properties": {
+                    "question": {"type": "string"},
+                    "task_type": {"type": "string"},
+                    "priority": {"type": "string", "enum": ["low", "normal", "high", "critical"]}
+                }
+            }
+        },
+        {
+            "name": "cabal.get_patch_gate_policy",
+            "description": "Возвращает policy patch-gate (unsafe/build/secrets/auto-apply limit).",
+            "inputSchema": {"type": "object", "properties": {}}
+        },
+        {
+            "name": "cabal.set_patch_gate_policy",
+            "description": "Обновляет policy patch-gate.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "require_review_on_unsafe": {"type": "boolean"},
+                    "require_review_on_build_scripts": {"type": "boolean"},
+                    "deny_on_secrets": {"type": "boolean"},
+                    "max_auto_apply_files": {"type": "integer", "minimum": 1}
+                }
+            }
+        },
+        {
+            "name": "cabal.evaluate_patch_gate",
+            "description": "Оценивает патч и возвращает режим применения: auto_apply|suggest_only|require_confirmation|deny.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["files"],
+                "properties": {
+                    "files": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+                    "task_risk": {"type": "string", "enum": ["low", "medium", "high", "critical"]},
+                    "touches_unsafe": {"type": "boolean"},
+                    "touches_build_scripts": {"type": "boolean"},
+                    "touches_secrets": {"type": "boolean"},
+                    "tests_passed": {"type": "boolean"}
+                }
+            }
         },
         {
             "name": "cabal.get_cross_rules_status",
@@ -1289,5 +2440,317 @@ fn tools_catalog() -> Value {
                 }
             }
         }
-    ])
+    ]);
+    if let Some(allowed) = allowed_canonical_tools {
+        if let Some(arr) = tools.as_array_mut() {
+            arr.retain(|tool| {
+                let Some(name) = tool.get("name").and_then(|v| v.as_str()) else {
+                    return false;
+                };
+                allowed.contains(name)
+            });
+        }
+    }
+    if matches!(format, ToolNameFormat::Canonical) {
+        append_compact_cabal_aliases(&mut tools, profile);
+    } else {
+        rewrite_tools_for_roo_compact_names(&mut tools);
+    }
+    tools
+}
+
+fn rewrite_tools_for_roo_compact_names(tools: &mut Value) {
+    let Some(arr) = tools.as_array_mut() else {
+        return;
+    };
+    for tool in arr.iter_mut() {
+        let Some(obj) = tool.as_object_mut() else {
+            continue;
+        };
+        let Some(name) = obj.get("name").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let Some(rest) = name.strip_prefix("cabal.") else {
+            continue;
+        };
+        obj.insert("name".to_string(), Value::String(format!("cabal{rest}")));
+    }
+}
+
+fn append_compact_cabal_aliases(tools: &mut Value, profile: CompatAliasProfile) {
+    if matches!(profile, CompatAliasProfile::None) {
+        return;
+    }
+    let Some(arr) = tools.as_array_mut() else {
+        return;
+    };
+
+    let existing_names: std::collections::HashSet<String> = arr
+        .iter()
+        .filter_map(|t| {
+            t.get("name")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        })
+        .collect();
+
+    let base = arr.clone();
+    let mut aliases = Vec::new();
+    for tool in base {
+        let Some(name) = tool.get("name").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let Some(rest) = name.strip_prefix("cabal.") else {
+            continue;
+        };
+        if !should_expose_alias(name, profile) {
+            continue;
+        }
+        let alias_name = format!("cabal{rest}");
+        if existing_names.contains(&alias_name) {
+            continue;
+        }
+        let mut alias_tool = tool.clone();
+        if let Some(obj) = alias_tool.as_object_mut() {
+            obj.insert("name".to_string(), Value::String(alias_name));
+            if let Some(desc) = obj.get("description").and_then(|v| v.as_str()) {
+                obj.insert(
+                    "description".to_string(),
+                    Value::String(format!("{desc} (compat alias without dot).")),
+                );
+            }
+        }
+        aliases.push(alias_tool);
+    }
+    arr.extend(aliases);
+}
+
+fn should_expose_alias(name: &str, profile: CompatAliasProfile) -> bool {
+    match profile {
+        CompatAliasProfile::None => false,
+        CompatAliasProfile::Full => true,
+        CompatAliasProfile::Core => {
+            name.starts_with("cabal.get_")
+                || matches!(
+                    name,
+                    "cabal.classify_task"
+                        | "cabal.plan_task_execution"
+                        | "cabal.evaluate_patch_gate"
+                        | "cabal.proxy_execute"
+                        | "cabal.transition_phase"
+                        | "cabal.transition_phase_strict"
+                        | "cabal.gate_check"
+                        | "cabal.route_consult"
+                        | "cabal.register_evidence"
+                        | "cabal.record_event"
+                        | "cabal.ack_cross_rules"
+                )
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_startup_options_defaults() {
+        let parsed = parse_startup_options(Vec::<String>::new()).expect("parse");
+        assert_eq!(
+            parsed,
+            StartupOptions {
+                show_help: false,
+                strict_artifacts: None
+            }
+        );
+    }
+
+    #[test]
+    fn parse_startup_options_help_and_strict_toggle() {
+        let parsed = parse_startup_options(vec!["--help", "--strict-artifacts"]).expect("parse");
+        assert_eq!(parsed.show_help, true);
+        assert_eq!(parsed.strict_artifacts, Some(true));
+    }
+
+    #[test]
+    fn parse_startup_options_explicit_bool_values() {
+        let parsed = parse_startup_options(vec!["--strict-artifacts=false"]).expect("parse");
+        assert_eq!(parsed.strict_artifacts, Some(false));
+
+        let parsed = parse_startup_options(vec!["--strict-artifacts", "yes"]).expect("parse");
+        assert_eq!(parsed.strict_artifacts, Some(true));
+
+        let parsed = parse_startup_options(vec!["--no-strict-artifacts"]).expect("parse");
+        assert_eq!(parsed.strict_artifacts, Some(false));
+    }
+
+    #[test]
+    fn parse_startup_options_ignores_unknown_flag() {
+        let parsed = parse_startup_options(vec!["--unknown"]).expect("must parse");
+        assert_eq!(parsed.show_help, false);
+        assert_eq!(parsed.strict_artifacts, None);
+    }
+
+    #[test]
+    fn normalize_tool_name_keeps_canonical_name() {
+        let normalized = normalize_tool_name_for_dispatch("cabal.get_state");
+        assert_eq!(normalized.as_ref(), "cabal.get_state");
+    }
+
+    #[test]
+    fn normalize_tool_name_recovers_missing_dot_after_prefix() {
+        let normalized = normalize_tool_name_for_dispatch("cabalget_capabilities");
+        assert_eq!(normalized.as_ref(), "cabal.get_capabilities");
+
+        let normalized = normalize_tool_name_for_dispatch("cabalroute_consult");
+        assert_eq!(normalized.as_ref(), "cabal.route_consult");
+    }
+
+    #[test]
+    fn normalize_tool_name_leaves_non_cabal_unchanged() {
+        let normalized = normalize_tool_name_for_dispatch("tools.list");
+        assert_eq!(normalized.as_ref(), "tools.list");
+    }
+
+    #[test]
+    fn tools_catalog_exposes_only_canonical_names() {
+        let tools = tools_catalog_with_alias_profile_and_format(
+            CompatAliasProfile::None,
+            ToolNameFormat::Canonical,
+        );
+        let arr = tools.as_array().expect("tools array");
+        let has_canonical = arr
+            .iter()
+            .any(|t| t.get("name").and_then(|v| v.as_str()) == Some("cabal.get_state"));
+        let has_alias = arr
+            .iter()
+            .any(|t| t.get("name").and_then(|v| v.as_str()) == Some("cabalget_state"));
+        assert!(has_canonical, "expected canonical cabal.get_state tool");
+        assert!(
+            !has_alias,
+            "compact alias must not be exposed in tools/list"
+        );
+    }
+
+    #[test]
+    fn tools_catalog_core_profile_includes_get_state_alias() {
+        let tools = tools_catalog_with_alias_profile_and_format(
+            CompatAliasProfile::Core,
+            ToolNameFormat::Canonical,
+        );
+        let arr = tools.as_array().expect("tools array");
+        let has_alias = arr
+            .iter()
+            .any(|t| t.get("name").and_then(|v| v.as_str()) == Some("cabalget_state"));
+        let has_non_core_alias = arr
+            .iter()
+            .any(|t| t.get("name").and_then(|v| v.as_str()) == Some("cabalset_policy_security"));
+        assert!(has_alias, "core profile must expose cabalget_state");
+        assert!(
+            !has_non_core_alias,
+            "core profile must not expose all aliases"
+        );
+    }
+
+    #[test]
+    fn tools_catalog_roo_compact_has_no_dot_names() {
+        let tools = tools_catalog_with_alias_profile_and_format(
+            CompatAliasProfile::None,
+            ToolNameFormat::RooCompact,
+        );
+        let arr = tools.as_array().expect("tools array");
+        let has_compact = arr
+            .iter()
+            .any(|t| t.get("name").and_then(|v| v.as_str()) == Some("cabalget_state"));
+        let has_canonical = arr
+            .iter()
+            .any(|t| t.get("name").and_then(|v| v.as_str()) == Some("cabal.get_state"));
+        assert!(has_compact, "expected compact cabalget_state");
+        assert!(
+            !has_canonical,
+            "canonical name must be absent in Roo format"
+        );
+    }
+
+    #[test]
+    fn tools_catalog_filtered_by_role_allowlist() {
+        let allowed = HashSet::from([
+            "cabal.get_state".to_string(),
+            "cabal.get_role_profile".to_string(),
+            "cabal.request_role_switch".to_string(),
+        ]);
+        let tools = tools_catalog_with_alias_profile_and_format_filtered(
+            CompatAliasProfile::None,
+            ToolNameFormat::Canonical,
+            Some(&allowed),
+        );
+        let arr = tools.as_array().expect("tools array");
+        assert_eq!(arr.len(), 3);
+        assert!(
+            arr.iter()
+                .any(|t| t.get("name").and_then(|v| v.as_str()) == Some("cabal.get_state"))
+        );
+        assert!(
+            arr.iter()
+                .any(|t| t.get("name").and_then(|v| v.as_str()) == Some("cabal.get_role_profile"))
+        );
+        assert!(
+            arr.iter().any(
+                |t| t.get("name").and_then(|v| v.as_str()) == Some("cabal.request_role_switch")
+            )
+        );
+    }
+
+    #[test]
+    fn known_tool_name_set_contains_role_switch_tools() {
+        assert!(is_known_canonical_tool_name("cabal.get_role_profile"));
+        assert!(is_known_canonical_tool_name("cabal.request_role_switch"));
+        assert!(is_known_canonical_tool_name("cabal.approve_role_switch"));
+        assert!(is_known_canonical_tool_name("cabal.tool_search"));
+        assert!(is_known_canonical_tool_name("cabal.programmatic_call"));
+        assert!(is_known_canonical_tool_name("cabal.result_compact"));
+        assert!(!is_known_canonical_tool_name("cabal.unknown_tool"));
+    }
+
+    #[test]
+    fn first_sentence_or_clip_prefers_sentence_boundary() {
+        let out = first_sentence_or_clip("Первая фраза. Вторая фраза.", 80);
+        assert_eq!(out, "Первая фраза.");
+    }
+
+    #[test]
+    fn score_tool_match_prefers_name_and_input_keys() {
+        let score = score_tool_match(
+            &["compact", "result"],
+            "cabal.result_compact",
+            "Сжимает результат",
+            &["payload", "max_chars"],
+        );
+        assert!(score >= 6);
+    }
+
+    #[test]
+    fn select_visible_tools_lazy_mode_returns_bootstrap_only() {
+        let allowed = HashSet::from([
+            "cabal.get_state".to_string(),
+            "cabal.tool_search".to_string(),
+            "cabal.get_tool_schema".to_string(),
+            "cabal.programmatic_call".to_string(),
+            "cabal.set_consult_mode".to_string(),
+        ]);
+        let visible = select_visible_tools(&allowed, true);
+        assert!(visible.contains("cabal.get_state"));
+        assert!(visible.contains("cabal.tool_search"));
+        assert!(!visible.contains("cabal.set_consult_mode"));
+    }
+
+    #[test]
+    fn select_visible_tools_non_lazy_mode_returns_full_allowed_set() {
+        let allowed = HashSet::from([
+            "cabal.get_state".to_string(),
+            "cabal.set_consult_mode".to_string(),
+        ]);
+        let visible = select_visible_tools(&allowed, false);
+        assert_eq!(visible, allowed);
+    }
 }

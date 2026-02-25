@@ -22,6 +22,31 @@ cargo build --release
 cargo run --release
 ```
 
+Консольные startup-флаги (применяются до MCP loop):
+```powershell
+cargo run --release -- --help
+cargo run --release -- --strict-artifacts
+cargo run --release -- --no-strict-artifacts
+```
+Эквивалент для бинарника:
+```powershell
+.\target\release\cabal-mcp-runtime.exe --strict-artifacts
+```
+
+В MCP-конфиг IDE добавьте сервер cabal с абсолютным command:
+
+```json
+{
+  "transport": "stdio",
+  "command": "C:\\\\path\\\\to\\\\Cabal-System\\\\cabal-mcp-runtime\\\\target\\\\release\\\\cabal-mcp-runtime.exe",
+  "args": [],
+  "env": {
+    "RUST_LOG": "info",
+    "CABAL_PROXY_SHELL_TIMEOUT_MS": "15000"
+  }
+}
+```
+
 ## Тесты
 ```powershell
 cargo test
@@ -61,7 +86,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\check-release-gates.ps1 -With
 
 Пример для реального IDE E2E отчёта (без fallback на fixture):
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\check-release-gates.ps1 -WithIntegration -IdeE2EReportPath .\spec\docs\ide_e2e_report.json -RequireRealIdeReport
+powershell -ExecutionPolicy Bypass -File .\scripts\check-release-gates.ps1 -WithIntegration -IdeE2EReportPath .\..\spec\docs\ide_e2e_report.json -RequireRealIdeReport
 ```
 Создание шаблона реального IDE E2E отчёта:
 ```powershell
@@ -71,7 +96,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\new-ide-e2e-report.ps1 -Repor
 В strict режиме `-RequireRealIdeReport` отчёт проверяется на свежесть (по умолчанию `72` часа).
 Порог можно переопределить:
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\check-release-gates.ps1 -WithIntegration -IdeE2EReportPath .\spec\docs\ide_e2e_report.json -RequireRealIdeReport -RealIdeReportMaxAgeHours 24
+powershell -ExecutionPolicy Bypass -File .\scripts\check-release-gates.ps1 -WithIntegration -IdeE2EReportPath .\..\spec\docs\ide_e2e_report.json -RequireRealIdeReport -RealIdeReportMaxAgeHours 24
 ```
 
 Валидация release summary:
@@ -183,6 +208,14 @@ Core-модули (после `P9` рефакторинга):
 - `cabal.get_error_codes`
 - `cabal.validate_error_codes_parity`
 - `cabal.get_state`
+- `cabal.tool_search` (lazy lookup по name/description)
+- `cabal.get_tool_schema` (full schema по имени инструмента)
+- `cabal.programmatic_call` (цепочка tool-calls в одном запросе)
+- `cabal.result_compact` (сжатие длинных JSON-результатов)
+- `cabal.get_result_compact_policy`
+- `cabal.set_result_compact_policy`
+- `cabal.get_context_window_policy`
+- `cabal.set_context_window_policy`
 - `cabal.get_cpu_policy`
 - `cabal.set_cpu_policy`
 - `cabal.get_gate_policy`
@@ -190,6 +223,13 @@ Core-модули (после `P9` рефакторинга):
 - `cabal.get_ide_profile_policy`
 - `cabal.set_ide_profile_policy`
 - `cabal.get_consult_routing`
+- `cabal.classify_task`
+- `cabal.get_budget_policy`
+- `cabal.set_budget_policy`
+- `cabal.plan_task_execution`
+- `cabal.get_patch_gate_policy`
+- `cabal.set_patch_gate_policy`
+- `cabal.evaluate_patch_gate`
 - `cabal.get_cross_rules_status`
 - `cabal.get_consult_guard_policy`
 - `cabal.get_adaptive_router`
@@ -243,6 +283,38 @@ Shell safety policy:
 - `cabal.set_proxy_operation_policy` позволяет задать category-level operation allowlist/denylist (denylist имеет приоритет).
 - `proxy_log` ограничен bounded retention (`5000` последних записей), старые trace записи автоматически отбрасываются.
 - `cabal.get_proxy_log(limit)` валидирует `limit>0` и применяет server-side cap (`max_limit=1000`).
+
+## Advanced Tool Use (lazy + programmatic)
+- `cabal.tool_search` по умолчанию возвращает краткие карточки, а не полные schema всех tools.
+- `cabal.get_tool_schema(name)` запрашивает full schema только для выбранного инструмента.
+- `cabal.programmatic_call` позволяет выполнить серию вызовов tools одним запросом и вернуть компактный агрегированный результат.
+- `result/context` policy управляют лимитами компактирования и количеством шагов в programmatic sequence.
+
+Минимальный пример `tool_search`:
+```json
+{
+  "name": "cabal.tool_search",
+  "arguments": {
+    "query": "audit rotate",
+    "limit": 5
+  }
+}
+```
+
+Минимальный пример `programmatic_call`:
+```json
+{
+  "name": "cabal.programmatic_call",
+  "arguments": {
+    "calls": [
+      { "name": "cabal.get_state", "arguments": {} },
+      { "name": "cabal.get_audit_rotation_policy", "arguments": {} }
+    ],
+    "compact_each_result": true,
+    "stop_on_error": true
+  }
+}
+```
 
 FS safety policy:
 - `cabal.proxy_execute(category=fs, operation=read_text)` использует bounded-read guardrail (`131072` bytes max) и возвращает поля `truncated`/`read_bytes`.
@@ -374,3 +446,16 @@ Adaptive Router (эмерджентный слой):
 - `cabal.get_adaptive_router` показывает текущие настройки и накопленные метрики;
 - `cabal.route_consult` возвращает `routing_decision` (`strategy`, `score`, `confidence`, `confidence_floor`, `exploration_rate`, `exploration_min_samples`);
 - при активном exploration возможна стратегия `adaptive_explore` с выбором недообученного исполнителя (по `min_samples`) для controlled exploration.
+
+## Task Classifier / Budget Controller / Patch Gate
+- `cabal.classify_task` классифицирует задачу в `task_type` + `risk` и возвращает confidence/keywords.
+- `cabal.get_budget_policy` / `cabal.set_budget_policy` управляют budget-профилями по risk (`max_steps`, `max_tool_calls`, `max_runtime_sec`).
+- `cabal.plan_task_execution` возвращает task-plan с учётом приоритета (`low|normal|high|critical`) и масштабированным budget.
+- `cabal.route_consult` теперь включает `task_profile` в ответ маршрутизации и audit.
+- `cabal.get_patch_gate_policy` / `cabal.set_patch_gate_policy` управляют правилами patch gate.
+- `cabal.evaluate_patch_gate` выдаёт режим применения патча: `auto_apply | suggest_only | require_confirmation | deny`.
+
+Patch gate default:
+- изменения секретов (`.env`, `secret`, `credential`, `token`) блокируются (`deny`);
+- изменения `unsafe`/SIMD и build/pipeline файлов требуют подтверждения (`require_confirmation`);
+- high/critical risk и oversized change-set автоматически понижают режим применения.

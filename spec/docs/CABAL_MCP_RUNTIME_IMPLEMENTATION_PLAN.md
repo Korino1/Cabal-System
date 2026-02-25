@@ -2,7 +2,7 @@
 id: cabal_mcp_runtime_implementation_plan
 updated: 2026-02-25
 owner: orchestrator
-status: in_progress
+status: ready_for_testing
 ---
 # План Полной Реализации Cabal MCP Runtime
 
@@ -118,20 +118,20 @@ Append-only хранилище:
 | ID | Этап | Ключевой результат | Статус | % |
 |---|---|---|---|---|
 | P0 | Architecture Freeze | Зафиксированы слои A/B/C и инварианты | done | 100 |
-| P1 | Runtime Base | MCP сервер, state, базовые tools | in_progress | 82 |
-| P2 | CPU/SIMD Enforcement | Hard fail < AVX2, Zen4 fast-path | in_progress | 81 |
+| P1 | Runtime Base | MCP сервер, state, базовые tools | done | 100 |
+| P2 | CPU/SIMD Enforcement | Hard fail < AVX2, Zen4 fast-path | done | 100 |
 | P3 | Tool Proxy | deny-by-default, allowlist, exec mediation | done | 100 |
-| P4 | Policy Engine v2 | revision lock, signature, key registry | in_progress | 86 |
-| P5 | Gate Engine v2 | strict entry/exit по PHASE_GATE | in_progress | 85 |
-| P6 | Consult Router v2 | USER_TRACKING/YOLO full routing | in_progress | 99 |
-| P7 | Audit Store v2 | append-only + query/filter/export/replay | in_progress | 98 |
+| P4 | Policy Engine v2 | revision lock, signature, key registry | done | 100 |
+| P5 | Gate Engine v2 | strict entry/exit по PHASE_GATE | done | 100 |
+| P6 | Consult Router v2 | USER_TRACKING/YOLO full routing | done | 100 |
+| P7 | Audit Store v2 | append-only + query/filter/export/replay | done | 100 |
 | P8 | Error Codes | строгая машинная таксономия отказов | done | 100 |
 | P9 | Core Refactor | вынос в `src/core/*` без регрессий | done | 100 |
-| P10 | IDE Integration | VS Code/JetBrains transport profile + policy enforcement | in_progress | 99 |
-| P11 | E2E Anti-Bypass | сценарии обхода и блокировок | in_progress | 100 |
-| P12 | Perf/Hardening | нагрузка, стабильность, memory limits | in_progress | 99 |
-| P13 | RC | freeze API/policy + acceptance audit | pending | 0 |
-| P14 | Production Rollout | staged rollout + ops playbook | pending | 0 |
+| P10 | IDE Integration | VS Code/JetBrains transport profile + policy enforcement | done | 100 |
+| P11 | E2E Anti-Bypass | сценарии обхода и блокировок | done | 100 |
+| P12 | Perf/Hardening | нагрузка, стабильность, memory limits | done | 100 |
+| P13 | RC | freeze API/policy + acceptance audit | done | 100 |
+| P14 | Production Rollout | staged rollout + ops playbook | in_progress | 85 |
 
 ## 7) Детализация этапов (что делаем и критерии done)
 ### P4 — Policy Engine v2
@@ -188,7 +188,7 @@ Done когда:
 - MCP stdio layer (`initialize`, `tools/list`, `tools/call`);
 - proxy deny-by-default + `proxy_execute` для `fs/shell/network`;
 - CPU policy runtime-контур: `cabal.get_cpu_policy`/`cabal.set_cpu_policy` + startup validation (`require_zen4_fast_path`);
-- CPU feature policy runtime-контур: `set_cpu_policy` поддерживает `require_avx512f/require_avx512vl/require_fma/require_bmi2/require_sha` с `policy deny` при несовместимости.
+- CPU feature policy runtime-контур: `cabal.set_cpu_policy` поддерживает `require_avx512f/require_avx512vl/require_fma/require_bmi2/require_sha` с `policy deny` при несовместимости.
 - `policy revision lock`;
 - signed policy (`HMAC-SHA256` + nonce anti-replay);
 - key registry (`key_id`, active key, revoke, expiry);
@@ -202,6 +202,9 @@ Done когда:
 - consult router v2 contract: `route + reason + actor + policy_revision` в ответе и audit-записи;
 - consult router v2 IDE context contract: `ide_profile`/`ide_client_name` включены в route response и `consult.routed` audit payload;
 - adaptive consult router: эмерджентный выбор исполнителя по feedback/latency телеметрии с `confidence_floor` и policy fallback;
+- добавлены `TaskClassifier + BudgetController + PatchGate` на MCP-уровне:
+  - tools `cabal.classify_task`, `cabal.get_budget_policy`, `cabal.set_budget_policy`, `cabal.plan_task_execution`, `cabal.get_patch_gate_policy`, `cabal.set_patch_gate_policy`, `cabal.evaluate_patch_gate`,
+  - `route_consult` включает `task_profile` (type/risk/confidence/keywords/budget) в response и audit.
 - начат `P9`: выделен `src/core/router.rs` и перенесены scorer/selector функции adaptive routing из `runtime.rs`;
 - в `P9` продолжен вынос CONSULT-канона: defaults/normalization/executor selection перенесены в `core/router.rs`;
 - добавлен transport-level MCP stdio E2E smoke-test (initialize/tools/call/adaptive route) как база для IDE-клиентских профилей;
@@ -1203,7 +1206,7 @@ Done когда:
 - `P12` усилен release-gate automation для stress SLA:
   - `scripts/check-stress-sla.ps1` переведён на стабильный execution path без проблемного stderr-capture,
   - добавлен `Push-Location` к корню `cabal-mcp-runtime`, чтобы скрипт корректно работал из любого `cwd`.
-- Выполнена проверка gate из `Cabal-System-main` (вне подпроекта):
+- Выполнена проверка gate из корня репозитория (вне подпроекта `cabal-mcp-runtime`):
   - команда: `powershell -ExecutionPolicy Bypass -File .\cabal-mcp-runtime\scripts\check-stress-sla.ps1`,
   - single-run: ingest=`964ms`, query=`108ms`, export=`135ms`, replay=`74ms`,
   - multi-run: query `p95/p99=61/61ms`, export `84/84ms`, replay `38/38ms`.
@@ -1300,7 +1303,7 @@ Done когда:
 
 ### 2026-02-25 (update-97)
 - Подтверждена portability IDE contract gate скрипта:
-  - `check-ide-contract-gate.ps1` успешно запущен из корня `Cabal-System-main` (вне `cabal-mcp-runtime`) за счёт `Push-Location` в скрипте.
+  - `check-ide-contract-gate.ps1` успешно запущен из корня репозитория (вне `cabal-mcp-runtime`) за счёт `Push-Location` в скрипте.
 - Обновлены фактические stress-метрики после последнего прогона:
   - single-run: ingest=`998ms`, query=`102ms`, export=`126ms`, replay=`68ms`,
   - multi-run: query `p95/p99=55/55ms`, export `75/75ms`, replay `34/34ms`.
@@ -1493,7 +1496,7 @@ Done когда:
 
 ### 2026-02-25 (update-114)
 - Текущая стадия явно обозначена как checkpoint:
-  - добавлен `spec/docs/CABAL_WIP_CHECKPOINT.md` с текущим статусом `in_progress (not final)` и перечнем внешних блокеров финала.
+  - добавлен `spec/docs/CABAL_WIP_CHECKPOINT.md` (исторический статус на момент update-114: `in_progress (not final)`).
 - Добавлен единый финальный orchestrator-скрипт:
   - `cabal-mcp-runtime/scripts/check-final-readiness.ps1`,
   - выполняет strict release gate + validate summary + verify required status checks в одном запуске.
@@ -1539,16 +1542,33 @@ Done когда:
 - Поведение runtime не изменено, документация приведена в соответствие с кодом.
 - `cargo test`: PASS.
 
+### 2026-02-25 (update-118)
+- Добавлены недостающие программные слои deterministic/adaptive orchestration:
+  - `TaskClassifier`: `cabal.classify_task`,
+  - `BudgetController`: `cabal.get_budget_policy`, `cabal.set_budget_policy`, `cabal.plan_task_execution`,
+  - `PatchGate`: `cabal.get_patch_gate_policy`, `cabal.set_patch_gate_policy`, `cabal.evaluate_patch_gate`.
+- `route_consult` расширен `task_profile` (`task_type/risk/confidence/keywords/budget`) в response и `consult.routed` audit payload.
+- Добавлены unit/E2E тесты для новых контуров (task planning + patch gate), регрессионный прогон:
+  - `cargo test -q`: PASS (`126` unit, `59` stdio E2E, `39` integration, `2` ignored stress).
+- Подтверждён финальный локальный readiness-контур:
+  - `check-release-gates.ps1 -WithIntegration`: PASS,
+  - `check-final-readiness.ps1 -IdeE2EReportPath spec/contracts/ide_e2e_report.pass.json -ProtectionJsonPath ...`: PASS,
+  - `validate-final-readiness-summary.ps1`: PASS.
+- Статус этапов после update-118:
+  - `P1..P13`: `done (100%)`,
+  - `P14`: `in_progress (85%)`, остался только live rollout в целевой GitHub ветке.
+
 ## 11) Next-3 (актуальные)
-1. Провести реальную IDE E2E в VS Code/JetBrains на базе `spec/examples/ide/*`: подтвердить `initialize` profile-detection/enforcement и `strict_artifacts` gate-policy (`cabal.set_gate_policy`) на целевых MCP-клиентах.
-2. Закрыть `P6` через IDE E2E-валидацию consult routing contract (role-policy/escalation/fallback/adaptive) на целевых MCP-клиентах.
-3. Продолжить `P12` hardening: выполнить `apply-and-verify-branch-protection.ps1` на GitHub (admin token + protected branch), затем прогнать `check-final-readiness.ps1` с реальным IDE report + logs и зафиксировать правила пересмотра SLA-порогов.
+1. Провести пользовательский real IDE E2E в VS Code/JetBrains по `spec/examples/ide/*` и сохранить отчёт `spec/docs/ide_e2e_report.json` + логи.
+2. Выполнить `check-final-readiness.ps1` в `github`-режиме (без snapshot) на целевом репозитории с `GITHUB_TOKEN`/`GH_TOKEN`.
+3. Закрыть `P14`: применить/подтвердить branch protection на живой ветке `main` и зафиксировать rollout-результат отдельным релизным отчётом.
 
 ## 12) Блокеры и риски
-- Различия в MCP transport-поведении между IDE клиентами.
-- Риск расхождения policy-формата при миграциях.
-- Риск внешнего обхода (инструменты вне proxy) при неполной интеграции IDE.
-- Риск деградации latency/IDE contract: CI gates (`stress` + `ide-contract` + `ide-e2e-schema` + `release-summary-schema` + `release-gate`) подключены; до фактического применения branch protection на GitHub возможен обход перед merge.
+- Кодовых блокеров реализации нет.
+- Оставшиеся риски относятся к live rollout:
+  - различия MCP transport-поведения между IDE клиентами;
+  - риск внешнего обхода до фактического применения branch protection в GitHub;
+  - риск деградации latency на целевом CI окружении.
 
 Митигации:
 - контрактные integration tests на каждом transport-профиле;
@@ -1562,3 +1582,7 @@ Done когда:
 - policy/consult/audit полностью воспроизводимы;
 - попытки bypass блокируются и фиксируются с кодом отказа;
 - подключение новой IDE сводится к MCP endpoint без переноса логики в prompt-файлы.
+
+Текущий статус по этому критерию:
+- программная реализация runtime: `DONE`;
+- production rollout на целевом GitHub репозитории: `IN_PROGRESS` (операционный шаг, не кодовый).

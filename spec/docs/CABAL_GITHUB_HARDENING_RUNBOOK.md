@@ -1,6 +1,7 @@
 # CABAL GitHub Hardening Runbook
 
 Цель: закрепить release-гейты Cabal как обязательные проверки ветки.
+Контекст выполнения команд: корень репозитория `Cabal-System`.
 
 ## 1) Локальный preflight
 ```powershell

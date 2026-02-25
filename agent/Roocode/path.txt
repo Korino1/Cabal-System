@@ -1,1 +1,6 @@
-%APPDATA%\Code\User\globalStorage\rooveterinaryinc.roo-cline\settings   - Для глобального режима. Либо делайете свой в папке проекта,смотрите документацию roocode.
+Yaml вставить по этому пути если хотите сделать Глобальную замену режимов.Внимание!!  Это перезапишет все стандартные режимы!
+
+Более безопасный путь -  локально в проекте создать папку .roo  и уже туда закинуть  yaml.
+
+C:\Users\Admin\AppData\Roaming\Code\User\globalStorage\rooveterinaryinc.roo-cline\settings
+
