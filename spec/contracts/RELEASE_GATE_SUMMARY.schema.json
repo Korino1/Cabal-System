@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cabal://contracts/release_gate_summary.schema.json",
+  "title": "Cabal Release Gate Summary",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "timestamp_utc",
+    "with_integration",
+    "require_real_ide_report",
+    "gate",
+    "steps"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "timestamp_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "with_integration": {
+      "type": "boolean"
+    },
+    "require_real_ide_report": {
+      "type": "boolean"
+    },
+    "real_ide_report_max_age_hours": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "ide_e2e_report_source": {
+      "type": "string",
+      "enum": [
+        "fixture",
+        "user",
+        "unknown"
+      ]
+    },
+    "ide_e2e_report_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "gate": {
+      "type": "string",
+      "enum": [
+        "PASS",
+        "FAIL"
+      ]
+    },
+    "failure": {
+      "type": "string"
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "status",
+          "command"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PASS",
+              "FAIL"
+            ]
+          },
+          "command": {
+            "type": "string",
+            "minLength": 1
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

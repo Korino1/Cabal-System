@@ -1,0 +1,36 @@
+name: cabal-mcp-runtime-ide-contract-gate
+
+on:
+  push:
+    paths:
+      - "cabal-mcp-runtime/**"
+      - "spec/examples/ide/**"
+      - ".github/workflows/cabal-mcp-runtime-ide-contract-gate.yml"
+  pull_request:
+    paths:
+      - "cabal-mcp-runtime/**"
+      - "spec/examples/ide/**"
+      - ".github/workflows/cabal-mcp-runtime-ide-contract-gate.yml"
+  workflow_dispatch:
+
+jobs:
+  ide-contract-gate:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            cabal-mcp-runtime -> cabal-mcp-runtime/target
+
+      - name: Run IDE contract gate
+        run: powershell -ExecutionPolicy Bypass -File .\cabal-mcp-runtime\scripts\check-ide-contract-gate.ps1 -WithIntegration

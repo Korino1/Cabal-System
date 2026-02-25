@@ -1,0 +1,29 @@
+name: cabal-mcp-runtime-ide-e2e-report-schema
+
+on:
+  push:
+    paths:
+      - "spec/contracts/IDE_E2E_REPORT.schema.json"
+      - "spec/contracts/ide_e2e_report.pass.json"
+      - "cabal-mcp-runtime/scripts/validate-ide-e2e-report.ps1"
+      - ".github/workflows/cabal-mcp-runtime-ide-e2e-report-schema.yml"
+  pull_request:
+    paths:
+      - "spec/contracts/IDE_E2E_REPORT.schema.json"
+      - "spec/contracts/ide_e2e_report.pass.json"
+      - "cabal-mcp-runtime/scripts/validate-ide-e2e-report.ps1"
+      - ".github/workflows/cabal-mcp-runtime-ide-e2e-report-schema.yml"
+  workflow_dispatch:
+
+jobs:
+  ide-e2e-report-schema-gate:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate IDE E2E report fixture
+        run: powershell -ExecutionPolicy Bypass -File .\cabal-mcp-runtime\scripts\validate-ide-e2e-report.ps1 -ReportPath .\spec\contracts\ide_e2e_report.pass.json

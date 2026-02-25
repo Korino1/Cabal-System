@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0.0",
+  "run_id": "smoke-ide-e2e-report-fixture",
+  "timestamp_utc": "2026-02-25T00:00:00Z",
+  "runtime_version": "cabal-mcp-runtime-smoke",
+  "profiles": [
+    {
+      "profile": "vscode",
+      "checks": {
+        "IDE-P1": true,
+        "IDE-P2": true,
+        "IDE-P3": true,
+        "IDE-P4": true,
+        "IDE-P5": true
+      },
+      "notes": "fixture-pass-vscode"
+    },
+    {
+      "profile": "jetbrains",
+      "checks": {
+        "IDE-P1": true,
+        "IDE-P2": true,
+        "IDE-P3": true,
+        "IDE-P4": true,
+        "IDE-P5": true
+      },
+      "notes": "fixture-pass-jetbrains"
+    }
+  ]
+}

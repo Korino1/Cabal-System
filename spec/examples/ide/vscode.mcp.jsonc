@@ -1,0 +1,15 @@
+{
+  // VS Code/Cursor/Windsurf-style MCP template.
+  // Replace command with an absolute path on your machine.
+  "mcpServers": {
+    "cabal": {
+      "transport": "stdio",
+      "command": "D:\\\\Rust\\\\Cabal System\\\\Cabal-System-main\\\\cabal-mcp-runtime\\\\target\\\\release\\\\cabal-mcp-runtime.exe",
+      "args": [],
+      "env": {
+        "RUST_LOG": "info",
+        "CABAL_PROXY_SHELL_TIMEOUT_MS": "15000"
+      }
+    }
+  }
+}

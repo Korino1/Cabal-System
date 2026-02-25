@@ -1,0 +1,29 @@
+name: cabal-mcp-runtime-release-summary-schema
+
+on:
+  push:
+    paths:
+      - "spec/contracts/RELEASE_GATE_SUMMARY.schema.json"
+      - "spec/contracts/release_gate_summary.pass.json"
+      - "cabal-mcp-runtime/scripts/validate-release-gate-summary.ps1"
+      - ".github/workflows/cabal-mcp-runtime-release-summary-schema.yml"
+  pull_request:
+    paths:
+      - "spec/contracts/RELEASE_GATE_SUMMARY.schema.json"
+      - "spec/contracts/release_gate_summary.pass.json"
+      - "cabal-mcp-runtime/scripts/validate-release-gate-summary.ps1"
+      - ".github/workflows/cabal-mcp-runtime-release-summary-schema.yml"
+  workflow_dispatch:
+
+jobs:
+  release-summary-schema-gate:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate release gate summary fixture
+        run: powershell -ExecutionPolicy Bypass -File .\cabal-mcp-runtime\scripts\validate-release-gate-summary.ps1 -SummaryPath .\spec\contracts\release_gate_summary.pass.json

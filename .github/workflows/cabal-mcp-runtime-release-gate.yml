@@ -1,0 +1,72 @@
+name: cabal-mcp-runtime-release-gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      ide_e2e_report_path:
+        description: "Path to IDE E2E report JSON (repo-relative or absolute)"
+        required: false
+        default: "spec/contracts/ide_e2e_report.pass.json"
+        type: string
+      require_real_ide_report:
+        description: "Fail if ide_e2e_report_path is missing/empty"
+        required: false
+        default: false
+        type: boolean
+      real_ide_report_max_age_hours:
+        description: "Max age (hours) for IDE E2E report when require_real_ide_report=true"
+        required: false
+        default: "72"
+        type: string
+
+jobs:
+  release-gate:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            cabal-mcp-runtime -> cabal-mcp-runtime/target
+
+      - name: Run unified release gates
+        run: |
+          $reportPath = "${{ github.event.inputs.ide_e2e_report_path }}"
+          $requireReal = "${{ github.event.inputs.require_real_ide_report }}"
+          $maxAgeHours = "${{ github.event.inputs.real_ide_report_max_age_hours }}"
+          $args = @(
+            "-ExecutionPolicy", "Bypass",
+            "-File", ".\cabal-mcp-runtime\scripts\check-release-gates.ps1",
+            "-WithIntegration",
+            "-SummaryPath", ".\cabal-mcp-runtime\.cabal_runtime\release_gate_summary.json"
+          )
+          if (-not [string]::IsNullOrWhiteSpace($reportPath)) {
+            $args += "-IdeE2EReportPath"
+            $args += $reportPath
+          }
+          if ($requireReal -eq "true") {
+            $args += "-RequireRealIdeReport"
+            if (-not [string]::IsNullOrWhiteSpace($maxAgeHours)) {
+              $args += "-RealIdeReportMaxAgeHours"
+              $args += $maxAgeHours
+            }
+          }
+          & powershell @args
+
+      - name: Validate release gate summary
+        run: powershell -ExecutionPolicy Bypass -File .\cabal-mcp-runtime\scripts\validate-release-gate-summary.ps1 -SummaryPath .\cabal-mcp-runtime\.cabal_runtime\release_gate_summary.json
+
+      - name: Upload release gate summary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cabal-release-gate-summary
+          path: .\cabal-mcp-runtime\.cabal_runtime\release_gate_summary.json

@@ -1,0 +1,36 @@
+name: cabal-mcp-runtime-stress-gate
+
+on:
+  push:
+    paths:
+      - "cabal-mcp-runtime/**"
+      - "spec/docs/CABAL_STRESS_SLA.md"
+      - ".github/workflows/cabal-mcp-runtime-stress-gate.yml"
+  pull_request:
+    paths:
+      - "cabal-mcp-runtime/**"
+      - "spec/docs/CABAL_STRESS_SLA.md"
+      - ".github/workflows/cabal-mcp-runtime-stress-gate.yml"
+  workflow_dispatch:
+
+jobs:
+  stress-sla-gate:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            cabal-mcp-runtime -> cabal-mcp-runtime/target
+
+      - name: Run stress SLA release gate
+        run: powershell -ExecutionPolicy Bypass -File .\cabal-mcp-runtime\scripts\check-stress-sla.ps1

@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0.0",
+  "timestamp_utc": "2026-02-25T00:00:00Z",
+  "with_integration": true,
+  "require_real_ide_report": false,
+  "real_ide_report_max_age_hours": null,
+  "ide_e2e_report_source": "fixture",
+  "ide_e2e_report_path": "spec/contracts/ide_e2e_report.pass.json",
+  "gate": "PASS",
+  "steps": [
+    {
+      "name": "stress_sla_gate",
+      "status": "PASS",
+      "command": "powershell -ExecutionPolicy Bypass -File scripts/check-stress-sla.ps1"
+    },
+    {
+      "name": "ide_contract_gate",
+      "status": "PASS",
+      "command": "powershell -ExecutionPolicy Bypass -File scripts/check-ide-contract-gate.ps1 -WithIntegration"
+    },
+    {
+      "name": "ide_e2e_schema_gate",
+      "status": "PASS",
+      "command": "powershell -ExecutionPolicy Bypass -File scripts/validate-ide-e2e-report.ps1 -ReportPath spec/contracts/ide_e2e_report.pass.json"
+    }
+  ]
+}

@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cabal://contracts/ide_e2e_report.schema.json",
+  "title": "Cabal IDE E2E Report",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "timestamp_utc",
+    "runtime_version",
+    "profiles"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "timestamp_utc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "runtime_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "profiles": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "required": [
+          "profile",
+          "checks"
+        ],
+        "properties": {
+          "profile": {
+            "type": "string",
+            "enum": [
+              "vscode",
+              "jetbrains"
+            ]
+          },
+          "checks": {
+            "type": "object",
+            "required": [
+              "IDE-P1",
+              "IDE-P2",
+              "IDE-P3",
+              "IDE-P4",
+              "IDE-P5"
+            ],
+            "properties": {
+              "IDE-P1": {
+                "type": "boolean"
+              },
+              "IDE-P2": {
+                "type": "boolean"
+              },
+              "IDE-P3": {
+                "type": "boolean"
+              },
+              "IDE-P4": {
+                "type": "boolean"
+              },
+              "IDE-P5": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": true
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}
