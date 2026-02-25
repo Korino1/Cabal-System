@@ -48,12 +48,28 @@ else {
     if ([string]::IsNullOrWhiteSpace($RepoOwner) -or [string]::IsNullOrWhiteSpace($RepoName)) {
         throw "RepoOwner and RepoName are required when ProtectionJsonPath is not provided"
     }
-    if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
-        throw "gh CLI is required. Install GitHub CLI first."
+    $gh = Get-Command gh -ErrorAction SilentlyContinue
+    if ($null -ne $gh) {
+        $route = "/repos/$RepoOwner/$RepoName/branches/$Branch/protection"
+        $json = gh api -H "Accept: application/vnd.github+json" $route
+        $protection = $json | ConvertFrom-Json
     }
-    $route = "/repos/$RepoOwner/$RepoName/branches/$Branch/protection"
-    $json = gh api -H "Accept: application/vnd.github+json" $route
-    $protection = $json | ConvertFrom-Json
+    else {
+        $token = $env:GITHUB_TOKEN
+        if ([string]::IsNullOrWhiteSpace($token)) {
+            $token = $env:GH_TOKEN
+        }
+        if ([string]::IsNullOrWhiteSpace($token)) {
+            throw "gh CLI is not installed and GITHUB_TOKEN/GH_TOKEN is not set."
+        }
+        $uri = "https://api.github.com/repos/$RepoOwner/$RepoName/branches/$Branch/protection"
+        $headers = @{
+            "Accept" = "application/vnd.github+json"
+            "Authorization" = "Bearer $token"
+            "X-GitHub-Api-Version" = "2022-11-28"
+        }
+        $protection = Invoke-RestMethod -Method Get -Uri $uri -Headers $headers
+    }
 }
 
 $actual = @()

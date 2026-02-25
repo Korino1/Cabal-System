@@ -91,6 +91,9 @@ GitHub hardening runbook: `../spec/docs/CABAL_GITHUB_HARDENING_RUNBOOK.md`.
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\set-required-stress-gate.ps1 -RepoOwner "<owner>" -RepoName "<repo>" -Branch "main" -StatusCheck "stress-sla-gate" -AdditionalStatusChecks "ide-contract-gate","ide-e2e-report-schema-gate","release-summary-schema-gate","release-gate"
 ```
+Скрипт поддерживает два пути доступа к GitHub API:
+- через `gh` CLI;
+- через переменную окружения `GITHUB_TOKEN` (или `GH_TOKEN`) при отсутствии `gh`.
 
 Упрощённый режим с рекомендованным набором Cabal-checks:
 ```powershell

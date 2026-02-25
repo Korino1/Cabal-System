@@ -18,10 +18,6 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-if (-not $DryRun -and -not (Get-Command gh -ErrorAction SilentlyContinue)) {
-    throw "gh CLI is required. Install GitHub CLI first."
-}
-
 $contexts = @()
 if (-not [string]::IsNullOrWhiteSpace($StatusCheck)) {
     $contexts += $StatusCheck.Trim()
@@ -71,17 +67,38 @@ if ($DryRun) {
     exit 0
 }
 
-$tmp = New-TemporaryFile
-try {
-    Set-Content -Path $tmp -Value $payload -NoNewline -Encoding UTF8
-    gh api `
-        --method PUT `
-        -H "Accept: application/vnd.github+json" `
-        "/repos/$RepoOwner/$RepoName/branches/$Branch/protection" `
-        --input "$tmp"
+$gh = Get-Command gh -ErrorAction SilentlyContinue
+if ($null -ne $gh) {
+    $tmp = New-TemporaryFile
+    try {
+        Set-Content -Path $tmp -Value $payload -NoNewline -Encoding UTF8
+        gh api `
+            --method PUT `
+            -H "Accept: application/vnd.github+json" `
+            "/repos/$RepoOwner/$RepoName/branches/$Branch/protection" `
+            --input "$tmp"
 
-    Write-Host "[cabal] branch protection updated." -ForegroundColor Green
+        Write-Host "[cabal] branch protection updated (gh)." -ForegroundColor Green
+    }
+    finally {
+        Remove-Item -Path $tmp -ErrorAction SilentlyContinue
+    }
+    exit 0
 }
-finally {
-    Remove-Item -Path $tmp -ErrorAction SilentlyContinue
+
+$token = $env:GITHUB_TOKEN
+if ([string]::IsNullOrWhiteSpace($token)) {
+    $token = $env:GH_TOKEN
 }
+if ([string]::IsNullOrWhiteSpace($token)) {
+    throw "gh CLI is not installed and GITHUB_TOKEN/GH_TOKEN is not set."
+}
+
+$uri = "https://api.github.com/repos/$RepoOwner/$RepoName/branches/$Branch/protection"
+$headers = @{
+    "Accept" = "application/vnd.github+json"
+    "Authorization" = "Bearer $token"
+    "X-GitHub-Api-Version" = "2022-11-28"
+}
+Invoke-RestMethod -Method Put -Uri $uri -Headers $headers -Body $payload -ContentType "application/json; charset=utf-8" | Out-Null
+Write-Host "[cabal] branch protection updated (REST API)." -ForegroundColor Green

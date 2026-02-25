@@ -12,6 +12,9 @@ powershell -ExecutionPolicy Bypass -File .\cabal-mcp-runtime\scripts\validate-re
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\cabal-mcp-runtime\scripts\set-required-stress-gate.ps1 -RepoOwner "<owner>" -RepoName "<repo>" -Branch "main" -UseCabalRecommendedChecks
 ```
+Требования доступа:
+- либо установлен `gh` CLI,
+- либо задан `GITHUB_TOKEN` (или `GH_TOKEN`) с правами на branch protection.
 
 Альтернатива: apply+verify одной командой:
 ```powershell
