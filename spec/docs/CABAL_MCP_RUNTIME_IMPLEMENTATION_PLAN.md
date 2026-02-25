@@ -1513,6 +1513,16 @@ Done когда:
   - `README`, `CABAL_GITHUB_HARDENING_RUNBOOK.md`, `CABAL_WIP_CHECKPOINT.md`.
 - `P3` 100%, `P6` 99%, `P8` 100%, `P10` 99%, `P12` 99%, `P11` 100%.
 
+### 2026-02-25 (update-116)
+- Устранён операционный блокер `gh` CLI:
+  - `set-required-stress-gate.ps1` и `verify-required-status-checks.ps1` поддерживают fallback через GitHub REST API по `GITHUB_TOKEN`/`GH_TOKEN`.
+- `README` и `CABAL_GITHUB_HARDENING_RUNBOOK.md` синхронизированы с требованиями доступа (gh CLI или token env).
+- Кодовая реализация и checkpoint-push опубликованы в `origin/main`:
+  - commit `fc1afb3` — основной WIP checkpoint (runtime + CI + contracts + docs),
+  - commit `64c71c6` — token-based fallback для branch-protection automation.
+- Текущий внешний блокер финализации не кодовый: для применения branch protection нужен `gh` или `GITHUB_TOKEN`/`GH_TOKEN` в окружении.
+- `P3` 100%, `P6` 99%, `P8` 100%, `P10` 99%, `P12` 99%, `P11` 100%.
+
 ### 2026-02-24 (update-39)
 - README runtime синхронизирован с текущим состоянием после `P9`:
   - добавлен список core-модулей,
