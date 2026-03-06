@@ -1,0 +1,20 @@
+{
+  "version": "0.1.0",
+  "released_at": "2025-10-08",
+  "changes": [
+    {
+      "scope": "api",
+      "type": "init",
+      "description": "Initial API scaffold"
+    }
+  ],
+  "semver_policy": {
+    "major": "breaking changes to public API or behavior",
+    "minor": "backward-compatible feature additions",
+    "patch": "backward-compatible fixes / docs"
+  },
+  "deprecation": {
+    "policy": "MINOR: add deprecation notice; remove no earlier than next MAJOR",
+    "notices": []
+  }
+}

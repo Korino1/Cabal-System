@@ -1,0 +1,32 @@
+# Процедура переключения фаз (шаблон)
+
+1) Проверка закрытия текущей фазы
+- Пройти чеклист: spec/docs/PHASE_GATE.md (Exit)
+- Заполнить PHASES/<Current>/DIGEST.md
+- В PHASES/<Current>/INDEX.md: Status = done, Exit Criteria заполнены
+- Выполнить: pwsh -NoLogo -File .\scripts\validate_phase_exit.ps1 -PhaseId "<Current>"
+- Для C-0: если после C-0.6 есть новый выбор/новые параметры от Пользователя, сначала повторно выполнить цикл C-0.2..C-0.6, затем закрывать фазу.
+
+2) Проверка входа следующей фазы
+- Пройти чеклист: spec/docs/PHASE_GATE.md (Entry)
+- В PHASES/<Next>/INDEX.md: Entry Criteria заполнены
+- Убедиться, что зависимые артефакты <Current> доступны и актуальны
+- Если <Next> = GA-1: до старта зафиксировать режим CONSULT (`USER_TRACKING`/`YOLO`) в `spec/docs/CONCEPT_MASTER.md` (6.7)
+- Если <Next> = GA-1 и выбран YOLO: зафиксировать дополнительные сквозные правила и только после этого активировать YOLO
+
+3) Обновление GLOBAL_INDEX.md
+- В таблице фазы <Current> выставить Status = done
+- В поле Active Phase установить следующий <Next>
+- В таблице фазы <Next> выставить Status = in_progress
+
+4) Активация следующей фазы
+- В PHASES/<Next>/INDEX.md: Status = in_progress
+- Создать/обновить PHASES/<Next>/DIGEST.md (минимум: `- Status: in_progress` + Scope/Open questions)
+- Записать шаг в PHASES/<Next>/WORKLOG.md
+- Запустить checkpoint с -PhaseId <Next>
+
+Пример команд:
+```
+pwsh -NoLogo -File .\scripts\validate_phase_exit.ps1 -PhaseId "GA-1"
+pwsh -NoLogo -File .\scripts\checkpoint.ps1 -ActiveId "T ECDLP.GOV.1" -Phase "GA-2" -PhaseId "GA-2" -NextSteps "..." -Summary "Phase switch: GA-1 -> GA-2" -Checkpoint
+```
